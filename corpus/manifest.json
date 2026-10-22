@@ -1,0 +1,694 @@
+{
+  "version": 1,
+  "referenceTools": {
+    "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "mpg123": "mpg123 1.33.7"
+  },
+  "entries": [
+    {
+      "file": "corpus/synthetic/sine440-mono-44k1-cbr96.mp3",
+      "sha256": "4eb6a0ca18bd3445cb1a4b588a8152981d2de5383eabcfaa276ffaeaf7cde32e",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 1 -ar 44100 -c:a libmp3lame -b:a 96k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 96
+      },
+      "features": [
+        "mpeg1",
+        "mono",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1260
+      },
+      "expectedFrames": 220500,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "sha256": "f6b81a39f6e3de5245436deafd5f1d313bd69e9007a27ca26d0144c8d456eaf2",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -ar 44100 -c:a libmp3lame -b:a 192k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 192
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1260
+      },
+      "expectedFrames": 220500,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine330-stereo-22k05-cbr64.mp3",
+      "sha256": "1479a00935267b4fc79c17eb3a5bcade1fa3b805daa6c4a14daf49b4ac0e4c12",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=330:duration=5 -ac 2 -ar 22050 -c:a libmp3lame -b:a 64k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2",
+        "sampleRate": 22050,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 918
+      },
+      "expectedFrames": 110250,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine880-mono-11k025-cbr32.mp3",
+      "sha256": "8871d2397ba2ccad9e12d03c499e5875a8be37e4a96e48ed21c5865ea9668e7c",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=880:duration=5 -ac 1 -ar 11025 -c:a libmp3lame -b:a 32k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 11025,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 32
+      },
+      "features": [
+        "mpeg2.5",
+        "mono",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 747
+      },
+      "expectedFrames": 55125,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine440-stereo-44k1-vbr.mp3",
+      "sha256": "1415d80828a4925fe466dc764f086f0835fda0eaf8053ceca88b61652b601235",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -ar 44100 -c:a libmp3lame -q:a 4",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "VBR",
+        "bitrateKbps": null
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "vbr",
+        "xing-header",
+        "lame-tag",
+        "id3v2.4"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1260
+      },
+      "expectedFrames": 220500,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/silence-stereo-44k1-cbr192.mp3",
+      "sha256": "68c523e391e48b226cd445022161109964949fc38bad4d9266dee43d5d6034d4",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 5 -c:a libmp3lame -b:a 192k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 192
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4",
+        "digital-silence"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1260
+      },
+      "expectedFrames": 220500,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/short-tone-stereo-44k1-cbr192.mp3",
+      "sha256": "a21421503d197e06dae025dda647e2d9453d8e9bd69f4df9de61a2c3b0c754fb",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=0.05 -ac 2 -ar 44100 -c:a libmp3lame -b:a 192k",
+        "encoder": "Lavc63.1 (libmp3lame via FFmpeg n9.0.2)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 192
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "id3v2.4",
+        "short-input"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 675
+      },
+      "expectedFrames": 2205,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine440-stereo-44k1-cbr192-shine.mp3",
+      "sha256": "9906a8a6e5f8b0c70a436183a04d9e21a0b980126d4fecfbb7a73ce9603421d8",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -ar 44100 -c:a pcm_s16le | shineenc -q -b 192 (truncated to last complete frame; shine 末帧少 1 字节)",
+        "encoder": "shine master@ab5e352 (toots/shine, fixed-point, built from source)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 192
+      },
+      "features": [
+        "mpeg1",
+        "stereo",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "encoder-shine"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 220032,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine880-mono-44k1-cbr96-shine.mp3",
+      "sha256": "e64dbedb1f6e3f2b44b43ecde3efdfb2a71979fdf3d3e2efc8e80b6a8398e67d",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=880:duration=5 -ac 1 -ar 44100 -c:a pcm_s16le | shineenc -q -m -b 96 (truncated to last complete frame; shine 末帧少 1 字节)",
+        "encoder": "shine master@ab5e352 (toots/shine, fixed-point, built from source)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 96
+      },
+      "features": [
+        "mpeg1",
+        "mono",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "encoder-shine"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 220032,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/sine440-jstereo-44k1-cbr128-shine.mp3",
+      "sha256": "26994379e27f2a44741ca020c23a02b7f8980a6094d701ecacc31ca1d9c43be4",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -ar 44100 -c:a pcm_s16le | shineenc -q -j -b 128 (truncated to last complete frame; shine 末帧少 1 字节)",
+        "encoder": "shine master@ab5e352 (toots/shine, fixed-point, built from source)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 128
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "encoder-shine"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 220032,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-48k-cbr128-lame.mp3",
+      "sha256": "5f1d6a976b013e663c4169909fce15536b58369cee433391f69527a52cd13e30",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=48000:d=2\" -c:a pcm_s16le -f wav - | lame -b 128 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 48000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 128
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1344
+      },
+      "expectedFrames": 96000,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-32k-cbr96-crc-lame.mp3",
+      "sha256": "859978eb59713690fa3c0677c37ab46246b2aba90a00e0181b567d57e96e3b2e",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=32000:d=2\" -c:a pcm_s16le -f wav - | lame -b 96 -p - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 32000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 96
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli",
+        "crc"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1088
+      },
+      "expectedFrames": 64000,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-dual-44k1-cbr128-lame.mp3",
+      "sha256": "57ef25a4c07622f7c13545dc5b869123f754d9bddfd1740a266fbe51051b2cbc",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=44100:d=2\" -c:a pcm_s16le -f wav - | lame -b 128 -m d - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "dual_channel",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 128
+      },
+      "features": [
+        "mpeg1",
+        "dual_channel",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1080
+      },
+      "expectedFrames": 88200,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "sha256": "22c1b6d059cf078473349ac20d38dfa40aefe9a4caab441ca1ddc35f0a31c58e",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=24000:d=2\" -c:a pcm_s16le -f wav - | lame -b 64 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2",
+        "sampleRate": 24000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 960
+      },
+      "expectedFrames": 48000,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-16k-cbr48-crc-lame.mp3",
+      "sha256": "59a3725e1d4b5c21ae4c438cdf641479ee00bbc0b364e62cc404f94b780cdcd7",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=16000:d=2\" -c:a pcm_s16le -f wav - | lame -b 48 -p - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2",
+        "sampleRate": 16000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 48
+      },
+      "features": [
+        "mpeg2",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli",
+        "crc"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 832
+      },
+      "expectedFrames": 32000,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-12k-cbr32-lame.mp3",
+      "sha256": "9371119c51fbcb8878bfe65c117c5294a91ed21a1dd55bc670b8d35eb7eabc62",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=12000:d=2\" -c:a pcm_s16le -f wav - | lame -b 32 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 12000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 32
+      },
+      "features": [
+        "mpeg2.5",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 768
+      },
+      "expectedFrames": 24000,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-8k-cbr16-lame.mp3",
+      "sha256": "700cb7b8983b38bd7b8172fb3506cb935cbe563aa92306666c78c7d0be2b2b15",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=8000:d=2\" -c:a pcm_s16le -f wav - | lame -b 16 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 8000,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 16
+      },
+      "features": [
+        "mpeg2.5",
+        "joint_stereo",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 17280,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/tone10ms-stereo-44k1-cbr128-lame.mp3",
+      "sha256": "37e507b86323f68e124f082a3e11db175322000029cd23b7a8a63f4d33806221",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"sine=frequency=1000:duration=0.01:sample_rate=44100\" -ac 2 -c:a pcm_s16le -f wav - | lame -b 128 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 128
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "sub-frame-input",
+        "short-blocks",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1287
+      },
+      "expectedFrames": 441,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/pluck-stereo-44k1-abr128-lame.mp3",
+      "sha256": "a6eff53f9836b58eea31c1a4c10573672f1109e4faeea0facacccb58383f6030",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"aevalsrc=exprs='0.8*sin(2*PI*1000*t)*exp(-30*mod(t\\,0.25))|0.8*sin(2*PI*1500*t)*exp(-30*mod(t\\,0.25))':s=44100:d=2\" -c:a pcm_s16le -f wav - | lame --abr 128 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "ABR",
+        "bitrateKbps": null
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "abr",
+        "xing-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1080
+      },
+      "expectedFrames": 88200,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/dense5min-stereo-44k1-cbr128-lame.mp3",
+      "sha256": "0acbfd4f55b3bbfc8514823d650dae1be3bd219ddd8c55ae21046e667abc8e52",
+      "origin": {
+        "kind": "generated",
+        "generator": "ffmpeg -f lavfi -i \"anoisesrc=color=pink:amplitude=0.25:duration=300:sample_rate=44100:seed=7\" -f lavfi -i \"aevalsrc=exprs='0.3*sin(2*PI*220*t)+0.2*sin(2*PI*660*t)*exp(-6*mod(t\\,0.5))|0.3*sin(2*PI*330*t)+0.2*sin(2*PI*990*t)*exp(-6*mod(t\\,0.5))':s=44100:d=300\" -filter_complex \"[0:a]aformat=channel_layouts=mono,asplit=2[n1][n2];[n1][n2]join=inputs=2:channel_layout=stereo[ns];[ns][1:a]amix=inputs=2:normalize=0[m]\" -map \"[m]\" -c:a pcm_s16le -f wav - | lame -b 128 - OUT",
+        "encoder": "LAME 64bits version 4.0 (lame CLI)"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "1",
+        "sampleRate": 44100,
+        "channels": 2,
+        "channelMode": "joint_stereo",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 128
+      },
+      "features": [
+        "mpeg1",
+        "joint_stereo",
+        "cbr",
+        "info-header",
+        "lame-tag",
+        "short-blocks",
+        "huffman-table0",
+        "five-minute",
+        "encoder-lame-cli"
+      ],
+      "trim": {
+        "kind": "lame-gapless",
+        "encDelay": 576,
+        "encPadding": 1296
+      },
+      "expectedFrames": 13230000,
+      "status": "frozen"
+    }
+  ]
+}
