@@ -22,18 +22,16 @@ func newReservoir(max int) *reservoir {
 func (r *reservoir) len() int { return len(r.buf) }
 
 // assemble 返回该帧完整 main_data 视图:reservoir 尾部 mainDataBegin 字节起,
-// 接上当前帧自带的 main 字节;视图在下一次 assemble 前有效。mainDataBegin
-// 超过持有量即 reservoir 越界,属格式损坏。
-func (r *reservoir) assemble(mainDataBegin int, frameMain []byte) ([]byte, error) {
-	if mainDataBegin > len(r.buf) {
-		return nil, &CorruptError{
-			Frame:  -1,
-			Detail: "main_data_begin exceeds bit reservoir",
-		}
-	}
-	r.win = append(r.win[:0], r.buf[len(r.buf)-mainDataBegin:]...)
+// 接上当前帧自带的 main 字节;视图在下一次 assemble 前有效。码流从中途开始时
+// mainDataBegin 可以超过已收到的数据量:视图开头补 missing 个 0 字节占位,
+// 使偏移与完整码流一致,占位字节不是码流数据。
+func (r *reservoir) assemble(mainDataBegin int, frameMain []byte) (window []byte, missing int) {
+	missing = max(mainDataBegin-len(r.buf), 0)
+	r.win = r.win[:missing]
+	clear(r.win)
+	r.win = append(r.win, r.buf[len(r.buf)-mainDataBegin+missing:]...)
 	r.win = append(r.win, frameMain...)
-	return r.win, nil
+	return r.win, missing
 }
 
 // advance 在帧处理完成后把该帧自带的 main 字节并入 reservoir,封顶 max。

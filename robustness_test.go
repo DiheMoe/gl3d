@@ -91,8 +91,8 @@ func TestTruncationAtEveryByte(t *testing.T) {
 	}
 }
 
-// 定向变异:标签长度、side information、reservoir 与尾部数据的结构损坏各归入
-// 确定的错误类别,损坏帧定位到帧序号,不 panic、不死循环。
+// 定向变异:标签长度、side information 与尾部数据的结构损坏各归入确定的
+// 错误类别,损坏帧定位到帧序号,不 panic、不死循环。
 // 位置按 MPEG-1 立体声 side info 布局:main_data_begin 0–8,gr0/ch0 的
 // part2_3_length 20–31、big_values 32–40、scalefac_compress 49–52、window_switching 53,
 // 其后 block_type 54–55(切换块)或 table_select 54–68(普通块),
@@ -111,7 +111,6 @@ func TestDirectedMutations(t *testing.T) {
 	}{
 		{"id3v2 size not syncsafe", func(d []byte) []byte { d[9] |= 0x80; return d }, "corrupt", -1},
 		{"id3v2 size beyond tag budget", func(d []byte) []byte { copy(d[6:10], []byte{0x7F, 0x7F, 0x7F, 0x7F}); return d }, "limit", -1},
-		{"main_data_begin beyond empty reservoir", func(d []byte) []byte { setBits(sideInfo(d, 0), 0, 9, 1); return d }, "corrupt", 0},
 		// 三个区都用不占位的表 0:缺少 big_values 上限检查时谱线下标会越过 576
 		{"big_values above 288", func(d []byte) []byte {
 			si := sideInfo(d, target)

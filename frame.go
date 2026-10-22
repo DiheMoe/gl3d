@@ -79,10 +79,7 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 		return wrapFrameErr(err, d.framesDecoded)
 	}
 	mainData := frame[off+fh.sideInfoSize : fh.frameSize]
-	window, err := d.rsv.assemble(si.mainDataBegin, mainData)
-	if err != nil {
-		return wrapFrameErr(err, d.framesDecoded)
-	}
+	window, missing := d.rsv.assemble(si.mainDataBegin, mainData)
 	br := &bitReader{data: window}
 
 	ngr := 2
@@ -92,14 +89,28 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 	nch := fh.channels()
 	n := fh.samplesPerFrame * nch
 	out := d.pcmReserve(n)
+	silentGr0 := false
 	for gr := 0; gr < ngr; gr++ {
+		// 码流从中途开始时,开头 granule 的数据起点可能早于流内第一个 main data
+		// 字节,无从解码;MPEG-1 第二个 granule 置了 scfsi 时还要复用第一个 granule
+		// 的 scalefactor,第一个缺数据它也缺。这类 granule 按全零频谱变换(按 granule
+		// 置零同 FFmpeg):输出静音,时长不变
+		silent := br.pos < 8*missing || gr == 1 && silentGr0 && si.scfsi != [2][4]int{}
+		if gr == 0 {
+			silentGr0 = silent
+		}
 		// block_type 与 mixed_block_flag 逐声道传输,仅 MS stereo 要求两声道一致
 		var bm [2]*bandMap
 		for ch := 0; ch < nch; ch++ {
 			shape := si.gr[gr][ch].shape()
 			bm[ch] = bandMapFor(fh.version, fh.srIdx, shape)
-			intensityR := fh.channelMode == modeJointStereo && fh.modeExt&1 != 0 && ch == 1
 			gs := &d.spec[ch]
+			if silent {
+				clear(gs.xr[:])
+				br.pos += si.gr[gr][ch].part2_3Length
+				continue
+			}
+			intensityR := fh.channelMode == modeJointStereo && fh.modeExt&1 != 0 && ch == 1
 			if err := decodeSpectra(&fh, si, gr, ch, br, bm[ch], shape, d.prevScf[ch][:], intensityR, gs); err != nil {
 				return wrapFrameErr(err, d.framesDecoded)
 			}
@@ -107,7 +118,7 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 				d.prevScf[ch] = gs.scf
 			}
 		}
-		if nch == 2 {
+		if nch == 2 && !silent {
 			// intensity stereo 的位置与界限按右声道的 scalefactor band 解释
 			r := &d.spec[1]
 			right := r.scf[:bm[1].scfLen]

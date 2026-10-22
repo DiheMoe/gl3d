@@ -30,8 +30,8 @@ func (e *TruncatedError) Error() string {
 }
 
 // CorruptError 表示码流格式损坏:保留值、非法长度、CRC 不匹配、非法
-// Huffman 数据、reservoir 越界等。Frame 为出错音频帧的序号(不含标签帧),
-// 无法定位到帧时为 -1。
+// Huffman 数据等。Frame 为出错音频帧的序号(不含标签帧),无法定位到帧时
+// 为 -1。
 type CorruptError struct {
 	Frame  int64
 	Detail string
