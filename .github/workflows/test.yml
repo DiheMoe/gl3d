@@ -33,6 +33,12 @@ jobs:
       - name: test -race
         run: go test -race -short ./...
 
+      - name: tools vet and test
+        working-directory: tools
+        run: |
+          go vet ./...
+          go test ./...
+
   fuzz-smoke:
     name: fuzz smoke (30s per target)
     runs-on: ubuntu-latest
