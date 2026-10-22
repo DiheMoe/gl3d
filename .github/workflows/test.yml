@@ -1,0 +1,48 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        go: ["1.27", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: test -race
+        run: go test -race -short ./...
+
+  fuzz-smoke:
+    name: fuzz smoke (30s per target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - run: go test -run='^$' -fuzz=FuzzParseTags -fuzztime=30s .
+      - run: go test -run='^$' -fuzz=FuzzFrameData -fuzztime=30s .
+      - run: go test -run='^$' -fuzz=FuzzStream -fuzztime=30s .
