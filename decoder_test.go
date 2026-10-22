@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand"
 	"os"
 	"strings"
 	"testing"
@@ -256,6 +257,33 @@ func TestSyncSearchCandidates(t *testing.T) {
 			t.Fatalf("err=%v, want LimitError", err)
 		}
 	})
+}
+
+// 同步搜索预算按首帧前丢弃的字节数计:超过 64 KiB 即资源超限,流随后结束也一样;
+// 结果不随读取分块变化。
+func TestSyncSearchBudgetAtStreamEnd(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"junk at budget", make([]byte, syncSearchBudget), "noaudio"},
+		{"junk beyond budget", make([]byte, syncSearchBudget+1), "limit"},
+		{"junk at budget then partial sync", append(make([]byte, syncSearchBudget), 0xFF), "truncated"},
+		{"junk beyond budget then partial sync", append(make([]byte, syncSearchBudget+1), 0xFF), "limit"},
+	}
+	for _, tc := range cases {
+		for name, r := range map[string]io.Reader{
+			"bytes":   bytes.NewReader(tc.data),
+			"onebyte": &oneByteReader{r: bytes.NewReader(tc.data)},
+			"chunked": &chunkReader{data: tc.data, rng: rand.New(rand.NewSource(1)), max: 97},
+		} {
+			_, err := NewDecoder(context.Background(), r)
+			if got := errClass(err); got != tc.want {
+				t.Errorf("%s, %s reader: %s (%v), want %s", tc.name, name, got, err, tc.want)
+			}
+		}
+	}
 }
 
 // id3v2Tag 返回声明 size 字节标签体(不含 10 字节头)的 ID3v2.4 标签;长度按 syncsafe(每字节 7 位)编码。

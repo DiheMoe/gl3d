@@ -143,22 +143,23 @@ func (d *Decoder) syncSearch(ctx context.Context) error {
 			}
 		}
 		if i < 0 {
-			if d.s.eof {
-				if w[len(w)-1] == 0xFF {
-					return &TruncatedError{Offset: d.s.tell() + int64(len(w)) - 1, What: "frame header"}
-				}
-				return ErrNoAudio
-			}
-			// 丢弃已确认无同步的字节,保留可能是半截同步的末尾 0xFF
+			// 丢弃已确认无同步的字节,保留可能是半截同步的末尾 0xFF。预算先于
+			// EOF 判定:末段数据是否与 EOF 同一次到达取决于读取分块,不能影响结果
 			drop := len(w)
 			if w[len(w)-1] == 0xFF {
 				drop--
 			}
-			searched += drop
-			d.s.drop(drop)
-			if searched > syncSearchBudget {
+			if searched+drop > syncSearchBudget {
 				return &LimitError{Budget: "sync search 64 KiB"}
 			}
+			if d.s.eof {
+				if drop < len(w) {
+					return &TruncatedError{Offset: d.s.tell() + int64(drop), What: "frame header"}
+				}
+				return ErrNoAudio
+			}
+			searched += drop
+			d.s.drop(drop)
 			continue
 		}
 		if i > 0 {
