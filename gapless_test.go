@@ -33,12 +33,10 @@ func infoFrame(t *testing.T, data []byte) (start, xo, lameOff int) {
 	return start, xo, xo + off
 }
 
-// setLAMETagCRC 按 LAME 的约定重算 Info 标签 CRC:CRC-16/ARC(反射多项式
-// 0xA001、初值 0),覆盖 CRC 字段之前的全部字节。
-func setLAMETagCRC(frame []byte, lameOff int) {
-	pos := lameOff + 34
+// arcCRC 是 Info 标签使用的 CRC-16/ARC(反射多项式 0xA001、初值 0)。
+func arcCRC(data []byte) uint16 {
 	var c uint16
-	for _, b := range frame[:pos] {
+	for _, b := range data {
 		c ^= uint16(b)
 		for i := 0; i < 8; i++ {
 			if c&1 != 0 {
@@ -48,7 +46,45 @@ func setLAMETagCRC(frame []byte, lameOff int) {
 			}
 		}
 	}
-	binary.BigEndian.PutUint16(frame[pos:], c)
+	return c
+}
+
+// setLAMETagCRC 按 LAME 的约定重算 Info 标签 CRC:覆盖 CRC 字段之前的全部字节。
+func setLAMETagCRC(frame []byte, lameOff int) {
+	pos := lameOff + 34
+	binary.BigEndian.PutUint16(frame[pos:], arcCRC(frame[:pos]))
+}
+
+// setFFmpegTagCRC 按 FFmpeg 的约定重算 Info 标签 CRC:覆盖帧首 190 字节,CRC 字段
+// 置 0,帧尾之后按 0 计。
+func setFFmpegTagCRC(frame []byte, lameOff int) {
+	pos := lameOff + 34
+	var buf [190]byte
+	copy(buf[:], frame)
+	buf[pos], buf[pos+1] = 0, 0
+	binary.BigEndian.PutUint16(frame[pos:], arcCRC(buf[:]))
+}
+
+// FFmpeg 写的 Info 帧在单声道与 LSF 布局的低码率下可能不足 190 字节,例如 44.1 kHz
+// 单声道 56 kbps 的 182 字节帧;按 FFmpeg 约定计算的 CRC 有效,gapless 信息照常采用。
+func TestInfoTagCRCFFmpegShortFrame(t *testing.T) {
+	data := readCorpus(t, "sine440-mono-44k1-cbr96.mp3") // FFmpeg 写入,Info 帧为 96 kbps
+	p, _, lo := infoFrame(t, data)
+	h, err := parseFrameHeader([4]byte(data[p : p+4]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	short := append([]byte(nil), data[p:p+182]...)
+	short[2] = short[2]&0x0D | 4<<4 // 码率序号 4(56 kbps),不加 padding
+	if sh, err := parseFrameHeader([4]byte(short[:4])); err != nil || sh.frameSize != 182 {
+		t.Fatalf("short Info frame header: frameSize %d, err %v", sh.frameSize, err)
+	}
+	setFFmpegTagCRC(short, lo)
+	stream := append(append(append([]byte(nil), data[:p]...), short...), data[p+h.frameSize:]...)
+	d, _ := decodeAll(t, bytes.NewReader(stream))
+	if !d.Trimmed() || d.Frames() != 220500 {
+		t.Fatalf("Trimmed()=%v Frames()=%d, want true and 220500", d.Trimmed(), d.Frames())
+	}
 }
 
 // 标签 CRC 不符时 Info 帧内容(Xing 帧数、LAME gapless 字段)不可信:不裁剪、

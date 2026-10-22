@@ -113,20 +113,23 @@ func parseLAMETag(b []byte) (l *lameTag, ok bool) {
 
 // infoTagCRCValid 校验 LAME 扩展末尾、位于帧内 crcPos 的 Info 标签 CRC
 // (CRC-16/ARC:反射多项式 0xA001、初值 0)。写入方的覆盖范围不一:LAME
-// 覆盖 CRC 字段之前的全部字节;FFmpeg 固定覆盖帧首 190 字节且计算时把
-// CRC 字段置 0。两种约定只在 CRC 字段恰位于第 190 字节时一致,任一吻合
-// 即视为有效。
+// 覆盖 CRC 字段之前的全部字节;FFmpeg 固定覆盖帧首 190 字节,计算时 CRC 字段
+// 置 0,帧不足 190 字节时帧尾之后按 0 计。两种约定只在 CRC 字段恰位于第 190
+// 字节时一致,任一吻合即视为有效。
 func infoTagCRCValid(frame []byte, crcPos int) bool {
 	stored := binary.BigEndian.Uint16(frame[crcPos:])
 	c := crc16ARC(0, frame[:crcPos])
 	if c == stored {
 		return true
 	}
-	if crcPos+2 > 190 || len(frame) < 190 {
+	if crcPos+2 > 190 {
 		return false
 	}
-	c = crc16ARC(c, []byte{0, 0})
-	return crc16ARC(c, frame[crcPos+2:190]) == stored
+	var zeros [190]byte
+	end := min(len(frame), 190)
+	c = crc16ARC(c, zeros[:2])
+	c = crc16ARC(c, frame[crcPos+2:end])
+	return crc16ARC(c, zeros[:190-end]) == stored
 }
 
 // crc16ARC 在已有校验值 crc 上继续累积 data 的 CRC-16/ARC。
