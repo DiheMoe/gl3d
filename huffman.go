@@ -1,6 +1,9 @@
 package gl3d
 
-import "fmt"
+import (
+	"fmt"
+	"math/bits"
+)
 
 // Huffman 解码。码表(huffman_tables.go)由 tools/huffgen 从 minimp3.h(CC0)
 // 提取的协议事实生成,均为完备前缀码。
@@ -9,7 +12,7 @@ import "fmt"
 // 在一级表直接命中;更长的码字按 8 位前缀分组,每组一张以剩余位为下标的二级表。
 // 查表结构在 init 时由 huffman_tables.go 的码字列表推导,不含新的协议数据。
 type huffDecoder struct {
-	pair  [32]huffFast
+	pair  [32]*huffFast
 	quadA [64]uint16 // 以 6 位为下标:码长<<8 | 标志位(vwxy)
 	quadB [16]uint16 // 以 4 位为下标
 }
@@ -17,9 +20,8 @@ type huffDecoder struct {
 // huffFast 是一张 big_values 表的两级查表。表项:叶子为 码长<<8 | x<<4 | y;
 // 子表指针为 1<<31 | 子表位数<<24 | 子表在 l2 中的偏移;0 表示无此码字。
 type huffFast struct {
-	valid bool
-	l1    [256]uint32
-	l2    []uint32
+	l1 [256]uint32
+	l2 []uint32
 }
 
 const huffSubFlag = 1 << 31
@@ -28,8 +30,14 @@ var huff = newHuffDecoder()
 
 func newHuffDecoder() *huffDecoder {
 	d := &huffDecoder{}
+	// 16..23 与 24..31 各自共享一套只读码字,仅 huffLinbits 按表号变化。
 	for t, entries := range huffBigTables {
-		if entries != nil {
+		switch {
+		case t >= 17 && t <= 23:
+			d.pair[t] = d.pair[16]
+		case t >= 25 && t <= 31:
+			d.pair[t] = d.pair[24]
+		case entries != nil:
 			d.pair[t] = buildHuffFast(entries)
 		}
 	}
@@ -50,8 +58,8 @@ func fillPrefix[T uint16 | uint32](tab []T, width int, code uint32, n int, v T) 
 	}
 }
 
-func buildHuffFast(entries []huffEntry) huffFast {
-	f := huffFast{valid: true}
+func buildHuffFast(entries []huffEntry) *huffFast {
+	f := &huffFast{}
 	// 码长超过 8 的码字按 8 位前缀分组,子表位数取组内最长码的剩余位数
 	var subBits [256]int
 	for _, e := range entries {
@@ -87,8 +95,8 @@ func (d *huffDecoder) decodePair(br *bitReader, table int) (int, int, error) {
 	if table == 0 {
 		return 0, 0, nil
 	}
-	f := &d.pair[table]
-	if !f.valid {
+	f := d.pair[table]
+	if f == nil {
 		return 0, 0, &CorruptError{Frame: -1, Detail: "invalid huffman table number"}
 	}
 	bits := br.peek32()
@@ -139,36 +147,31 @@ func (d *huffDecoder) extend(br *bitReader, v, linbits int) (int, error) {
 }
 
 // decodeQuad 解码 count1 区的一个四元组(count1table_select 选择表 A/B)。
-func decodeQuad(br *bitReader, tableB bool) ([4]int, error) {
-	bits := br.peek32()
+// limit 是已验证不超过物理窗口的 granule 位终点。末尾不足一个完整码字或
+// 其符号位时返回 false,保留 br.pos,由调用方把剩余位作为 stuffing 丢弃。
+func decodeQuad(br *bitReader, tableB bool, limit int) ([4]int, bool) {
+	peek := br.peek32()
 	var e uint16
 	if tableB {
-		e = huff.quadB[bits>>28]
+		e = huff.quadB[peek>>28]
 	} else {
-		e = huff.quadA[bits>>26]
+		e = huff.quadA[peek>>26]
 	}
 	n := int(e >> 8)
-	if n == 0 {
-		return [4]int{}, &CorruptError{Frame: -1, Detail: "invalid count1 codeword"}
+	// 两张表都是完备前缀码;低 4 位各表示一个必须读取符号位的非零值。
+	total := n + bits.OnesCount8(uint8(e))
+	if br.pos+total > limit {
+		return [4]int{}, false
 	}
-	if br.pos+n > len(br.data)*8 {
-		return [4]int{}, &CorruptError{Frame: -1, Detail: "count1 data underrun"}
-	}
-	br.pos += n
+	peek <<= n
 	var out [4]int
 	for i := 0; i < 4; i++ {
 		if e&(8>>i) == 0 {
 			continue
 		}
-		sign, err := br.read(1)
-		if err != nil {
-			return [4]int{}, &CorruptError{Frame: -1, Detail: "count1 sign bit underrun"}
-		}
-		if sign != 0 {
-			out[i] = -1
-		} else {
-			out[i] = 1
-		}
+		out[i] = 1 - 2*int(peek>>31)
+		peek <<= 1
 	}
-	return out, nil
+	br.pos += total
+	return out, true
 }

@@ -1,13 +1,32 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
+
+func encodePCM(vals []float64, width int) []byte {
+	b := make([]byte, len(vals)*width)
+	for i, v := range vals {
+		if width == 8 {
+			binary.LittleEndian.PutUint64(b[i*width:], math.Float64bits(v))
+		} else {
+			binary.LittleEndian.PutUint32(b[i*width:], math.Float32bits(float32(v)))
+		}
+	}
+	return b
+}
+
+func compare(ref, out []float64, channels int) (*stats, error) {
+	return compareReaders(bytes.NewReader(encodePCM(ref, 8)), bytes.NewReader(encodePCM(out, 8)), 8, 8, channels, -1)
+}
 
 func TestCompareIdentical(t *testing.T) {
 	ref := []float64{0.1, -0.1, 0.2, -0.2}
@@ -112,15 +131,11 @@ func TestLoadPCMFormats(t *testing.T) {
 	if err := os.WriteFile(p64, buf64, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadPCM(p64, "f64le")
+	f64, w64, err := openPCM(p64, "f64le")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, v := range vals {
-		if got[i] != v {
-			t.Fatalf("f64le sample %d = %g, want %g", i, got[i], v)
-		}
-	}
+	defer f64.Close()
 
 	vals32 := []float32{0.5, -0.25, 1.5}
 	buf32 := make([]byte, 4*len(vals32))
@@ -131,14 +146,17 @@ func TestLoadPCMFormats(t *testing.T) {
 	if err := os.WriteFile(p32, buf32, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	got, err = loadPCM(p32, "f32le")
+	f32, w32, err := openPCM(p32, "f32le")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, v := range vals32 {
-		if got[i] != float64(v) {
-			t.Fatalf("f32le sample %d = %g, want %g", i, got[i], float64(v))
-		}
+	defer f32.Close()
+	s, err := compareReaders(f64, f32, w64, w32, 1, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.framesRef != 3 || s.rmsErr[0] != 0 || s.peakRef[0] != 1.5 || s.peakOut[0] != 1.5 {
+		t.Fatalf("mixed f64/f32 comparison: %+v", s)
 	}
 }
 
@@ -147,24 +165,28 @@ func TestLoadPCMRejectsTruncatedSample(t *testing.T) {
 	if err := os.WriteFile(p, []byte{1, 2, 3}, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadPCM(p, "f64le"); err == nil {
+	if _, _, err := openPCM(p, "f64le"); err == nil {
 		t.Fatal("want error for 3-byte f64le file")
 	}
 }
 
 func TestSkipFrames(t *testing.T) {
 	s := []float64{1, 2, 3, 4, 5, 6}
-	got, err := skipFrames(s, 2, 1)
+	r := bytes.NewReader(encodePCM(s, 8))
+	if err := skipPCM(r, 8, 2, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 4 || got[0] != 3 {
-		t.Fatalf("got %v, want [3 4 5 6]", got)
+	if !bytes.Equal(got, encodePCM([]float64{3, 4, 5, 6}, 8)) {
+		t.Fatalf("got %x, want encoded [3 4 5 6]", got)
 	}
-	if _, err := skipFrames(s, 2, 4); err == nil {
+	if err := skipPCM(bytes.NewReader(encodePCM(s, 8)), 8, 2, 4); err == nil {
 		t.Fatal("want error for skip beyond end")
 	}
-	if _, err := skipFrames(s, 2, -1); err == nil {
+	if err := skipPCM(bytes.NewReader(encodePCM(s, 8)), 8, 2, -1); err == nil {
 		t.Fatal("want error for negative skip")
 	}
 }
@@ -193,5 +215,89 @@ func TestRunWithFramesLimitsComparison(t *testing.T) {
 	}
 	if _, err := run(ref, out, "f64le", "f64le", 1, 0, 0, -1, 1e-5, 1e-3, 0.1, &sb); err == nil {
 		t.Fatal("want count mismatch error without -frames")
+	}
+}
+
+func TestCompareAcrossBlocksAndShortReads(t *testing.T) {
+	const channels = 3
+	ref := make([]float64, channels*(pcmBlockSamples+1))
+	for i := range ref {
+		ref[i] = float64(i%17) / 32
+	}
+	out := append([]float64(nil), ref...)
+	const changed = pcmBlockSamples + 2
+	out[changed] += 0.125
+	s, err := compareReaders(
+		iotest.OneByteReader(bytes.NewReader(encodePCM(ref, 8))),
+		iotest.HalfReader(bytes.NewReader(encodePCM(out, 4))), 8, 4, channels, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := changed % channels
+	if s.framesRef != pcmBlockSamples+1 || s.maxErr[c] != 0.125 || s.maxErrAt[c] != changed/channels {
+		t.Fatalf("block boundary changed channel/frame: %+v", s)
+	}
+	wantRMS := 0.125 / math.Sqrt(pcmBlockSamples+1)
+	if math.Abs(s.rmsErr[c]-wantRMS) > 1e-12 {
+		t.Fatalf("RMS %g, want %g", s.rmsErr[c], wantRMS)
+	}
+	for i := range channels {
+		if i != c && (s.rmsErr[i] != 0 || s.maxErr[i] != 0) {
+			t.Fatalf("unexpected error in channel %d", i)
+		}
+	}
+}
+
+func TestCompareStreamLimitsAndMalformedInput(t *testing.T) {
+	good := encodePCM([]float64{0.5, -0.5, math.NaN()}, 8)
+	ref, out := bytes.NewReader(good), bytes.NewReader(good)
+	if _, err := compareReaders(ref, out, 8, 8, 2, 1); err != nil {
+		t.Fatalf("unused suffix must not be compared: %v", err)
+	}
+	if ref.Len() != 8 || out.Len() != 8 {
+		t.Fatal("-frames read beyond the requested prefix")
+	}
+	cases := []struct {
+		name     string
+		ref, out []byte
+		channels int
+		frames   int
+	}{
+		{"partial sample", []byte{1}, []byte{1}, 1, -1},
+		{"partial channel frame", good[:8], good[:8], 2, -1},
+		{"length mismatch", good[:16], good[:8], 1, -1},
+		{"short requested prefix", good[:16], good[:16], 2, 2},
+		{"zero channels", nil, nil, 0, -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := compareReaders(bytes.NewReader(tc.ref), bytes.NewReader(tc.out), 8, 8, tc.channels, tc.frames); err == nil {
+				t.Fatal("want malformed input error")
+			}
+		})
+	}
+}
+
+func TestRunSkipsNaNAndValidatesUnusedFileTail(t *testing.T) {
+	dir := t.TempDir()
+	ref, out := filepath.Join(dir, "ref.f64le"), filepath.Join(dir, "out.f32le")
+	if err := os.WriteFile(ref, encodePCM([]float64{math.NaN(), 0.5, -0.5}, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, encodePCM([]float64{0.5, -0.5, math.NaN()}, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v, err := run(ref, out, "f64le", "f32le", 1, 1, 0, 2, 1e-5, 1e-3, 0.1, io.Discard)
+	if err != nil || len(v) != 0 {
+		t.Fatalf("documented skips and prefix: violations=%v, err=%v", v, err)
+	}
+	if _, err := run(ref, out, "f64le", "f32le", 1, 4, 0, 0, 1e-5, 1e-3, 0.1, io.Discard); err == nil {
+		t.Fatal("regular-file seek beyond EOF must fail")
+	}
+	if err := os.WriteFile(out, append(encodePCM([]float64{0.5, -0.5}, 4), 1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(ref, out, "f64le", "f32le", 1, 1, 0, 1, 1e-5, 1e-3, 0.1, io.Discard); err == nil {
+		t.Fatal("partial PCM sample must fail even outside -frames")
 	}
 }

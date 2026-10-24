@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -80,7 +82,10 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 			}
 			ref, err := os.Open(filepath.Join("corpus/synthetic/ref", name+".ffmpeg.f64le"))
 			if err != nil {
-				t.Skip("reference output not available:", err)
+				if os.Getenv("GL3D_REQUIRE_REFERENCE") == "1" || !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("required reference output not available:", err)
+				}
+				t.Skip("reference output not available (set GL3D_REQUIRE_REFERENCE=1 to require it):", err)
 			}
 			defer ref.Close()
 			src, err := os.Open(e.File)
@@ -96,7 +101,10 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 				t.Fatalf("format %d Hz × %d ch, manifest %d Hz × %d ch",
 					d.SampleRate(), d.Channels(), e.ExpectedFormat.SampleRate, e.ExpectedFormat.Channels)
 			}
-			rms, max := compareStream(t, d, bufio.NewReaderSize(ref, 1<<16))
+			rms, max, err := compareStream(d, bufio.NewReaderSize(ref, 1<<16))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if e.ExpectedFrames != nil && d.Frames() != *e.ExpectedFrames {
 				t.Fatalf("Frames()=%d, manifest expectedFrames=%d", d.Frames(), *e.ExpectedFrames)
 			}
@@ -104,7 +112,7 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 				t.Fatalf("Trimmed()=%v, manifest trim.kind=%q", d.Trimmed(), e.Trim.Kind)
 			}
 			t.Logf("rms=%.3e max=%.3e frames=%d decoded=%d trimmed=%v", rms, max, d.Frames(), d.DecodedFrames(), d.Trimmed())
-			if rms > 1e-5 || max > 1e-3 {
+			if !(rms <= 1e-5 && max <= 1e-3) {
 				t.Fatalf("rms=%g max=%g exceed thresholds", rms, max)
 			}
 		})
@@ -114,8 +122,7 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 // compareStream 边解码边与 f64le 参考逐样本比较,返回 RMS 与最大绝对误差;
 // 参考长度必须与解码输出恰好一致。RMS 分母为采样帧数,不小于任一声道的
 // RMS;NaN 比较恒为假,不先拦截会使误差门槛失效。
-func compareStream(t *testing.T, d *Decoder, ref io.Reader) (rms, maxErr float64) {
-	t.Helper()
+func compareStream(d *Decoder, ref io.Reader) (rms, maxErr float64, err error) {
 	buf := make([]float64, 4096*d.Channels())
 	var b [8]byte
 	var sum float64
@@ -124,12 +131,16 @@ func compareStream(t *testing.T, d *Decoder, ref io.Reader) (rms, maxErr float64
 		k, err := d.ReadPCM(context.Background(), buf)
 		for _, v := range buf[:k*d.Channels()] {
 			if math.IsNaN(v) || math.IsInf(v, 0) {
-				t.Fatalf("sample %d is %v", n, v)
+				return 0, 0, fmt.Errorf("decoder sample %d is %v", n, v)
 			}
 			if _, rerr := io.ReadFull(ref, b[:]); rerr != nil {
-				t.Fatalf("reference ends at sample %d, decoder continues", n)
+				return 0, 0, fmt.Errorf("reference ends at sample %d, decoder continues: %w", n, rerr)
 			}
-			diff := math.Abs(v - math.Float64frombits(binary.LittleEndian.Uint64(b[:])))
+			r := math.Float64frombits(binary.LittleEndian.Uint64(b[:]))
+			if math.IsNaN(r) || math.IsInf(r, 0) {
+				return 0, 0, fmt.Errorf("reference sample %d is %v", n, r)
+			}
+			diff := math.Abs(v - r)
 			sum += diff * diff
 			maxErr = max(maxErr, diff)
 			n++
@@ -138,19 +149,35 @@ func compareStream(t *testing.T, d *Decoder, ref io.Reader) (rms, maxErr float64
 			break
 		}
 		if err != nil {
-			t.Fatal(err)
+			return 0, 0, err
 		}
 		if k == 0 {
-			t.Fatal("no progress: (0, nil)")
+			return 0, 0, errors.New("no progress: (0, nil)")
 		}
 	}
 	if _, err := io.ReadFull(ref, b[:]); err != io.EOF {
-		t.Fatalf("reference has samples beyond the decoder's %d", n)
+		return 0, 0, fmt.Errorf("reference has samples beyond the decoder's %d: %v", n, err)
 	}
 	if n == 0 {
-		return 0, 0
+		return 0, 0, nil
 	}
-	return math.Sqrt(sum / float64(n/int64(d.Channels()))), maxErr
+	return math.Sqrt(sum / float64(n/int64(d.Channels()))), maxErr, nil
+}
+
+func TestCompareStreamRejectsNonFiniteReference(t *testing.T) {
+	data := readCorpus(t, "tone10ms-stereo-44k1-cbr128-lame.mp3")
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprint(v), func(t *testing.T) {
+			d, err := NewDecoder(context.Background(), bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = compareStream(d, bytes.NewReader(float64Bytes([]float64{v})))
+			if err == nil || !strings.Contains(err.Error(), "reference sample 0") {
+				t.Fatalf("reference %v: err=%v, want non-finite reference error", v, err)
+			}
+		})
+	}
 }
 
 func float64Bytes(v []float64) []byte {
