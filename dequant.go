@@ -289,11 +289,15 @@ type granuleSpectrum struct {
 }
 
 // decodeSpectra 解码并反量化一个 granule/channel 的 576 条谱线。
-// 位消耗以 part2_3_length 为硬上限,超出即格式损坏。
+// scalefactor 与 big_values 不得越过 part2_3_length;末尾不足一个完整
+// count1 四元组的位作为 stuffing 丢弃。
 func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *bandMap, shape blockShape, prevScf []int, intensityR bool, gs *granuleSpectrum) error {
 	gi := &si.gr[gr][ch]
 	start := br.pos
 	limit := start + gi.part2_3Length
+	if limit > len(br.data)*8 {
+		return &CorruptError{Frame: -1, Detail: "part2_3_length exceeds main data"}
+	}
 	scf := gs.scf[:bm.scfLen]
 	transmitted, err := readScalefactors(br, h.version, gi, si.scfsi[ch], shape, gr == 1, prevScf, intensityR, scf, gs.ist[:bm.scfLen])
 	if err != nil {
@@ -323,12 +327,9 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 		}
 	}
 	// count1 四元组,直到 granule 位耗尽;跨界四元组丢弃(参考实现一致行为)
-	for pos < 576 && br.pos < limit {
-		q, err := decodeQuad(br, gi.count1Table == 1)
-		if err != nil {
-			return err
-		}
-		if br.pos > limit || pos+4 > 576 {
+	for pos+4 <= 576 && br.pos < limit {
+		q, complete := decodeQuad(br, gi.count1Table == 1, limit)
+		if !complete {
 			break
 		}
 		copy(is[pos:pos+4], q[:])
@@ -343,9 +344,20 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 // (linbits 至多 13 位);init 按公式生成。
 var pow43 [8207]float64
 
+// 增益指数是 q/4。global_gain 为 0..255,scalefactor 至多 31(LSF 最宽
+// 5 位),scalefac_scale 为 0..1,subblock_gain 为 0..7,pretab 至多 3。
+// 短区 q >= -210-8*7-4*31 = -390;长区 q >= -210-4*(31+3) = -346;
+// 两者 q <= 255-210 = 45。字段范围由帧头/side info/读位宽度保证。
+const minGainQuarter, maxGainQuarter = -390, 45
+
+var gainQuarter [maxGainQuarter - minGainQuarter + 1]float64
+
 func init() {
 	for i := range pow43 {
 		pow43[i] = math.Pow(float64(i), 4.0/3.0)
+	}
+	for i := range gainQuarter {
+		gainQuarter[i] = math.Exp2(float64(i+minGainQuarter) / 4)
 	}
 }
 
@@ -354,17 +366,17 @@ func init() {
 // 长块 preflag 另加 pretab。增益按 scalefactor 带计算一次;nz 之后的谱线为 0。
 func dequantize(gi *granuleInfo, bm *bandMap, scf []int, is *[576]int, nz int, xr *[576]float64) {
 	var gain [40]float64
-	sfs := 0.5 * float64(gi.scalefacScale+1)
+	sfs := 2 * (gi.scalefacScale + 1)
 	for b := 0; b < bm.scfLen; b++ {
-		s := float64(scf[b])
+		s := scf[b]
 		if gi.preflag != 0 && bm.long && b < 22 {
-			s += float64(pretab[b])
+			s += pretab[b]
 		}
-		e := float64(gi.globalGain - 210)
+		q := gi.globalGain - 210 - sfs*s
 		if w := bm.bandWin[b]; w >= 0 {
-			e -= 8 * float64(gi.subblockGain[w])
+			q -= 8 * gi.subblockGain[w]
 		}
-		gain[b] = math.Exp2(0.25*e - sfs*s)
+		gain[b] = gainQuarter[q-minGainQuarter]
 	}
 	for i := 0; i < nz; i++ {
 		switch v := is[i]; {

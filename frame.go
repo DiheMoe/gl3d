@@ -35,33 +35,20 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 	}
 	fh, err := parseFrameHeader([4]byte(d.s.buf[:4]))
 	if err != nil {
-		return err
+		return wrapFrameErr(err, d.framesDecoded)
 	}
 	// 版本、采样率、声道数中途改变属范围外格式;码率与 padding 可逐帧变化
 	if fh.version != d.header.version || fh.sampleRate != d.header.sampleRate || fh.channels() != d.header.channels() {
 		return &UnsupportedError{Feature: "mid-stream format change"}
 	}
-	// 预取下一帧帧头用于同步确认;源出错或取消时若本帧已完整,先解码本帧,
-	// 错误留到下一轮报告,不吞掉最后一批样本
-	lookErr := d.s.fill(ctx, fh.frameSize+4)
+	// 同步只在初始化时确认。当前完整帧不依赖下一帧是否已经到达或合法;
+	// 后续头部/尾部的错误在下一轮报告,先交付已经收到的完整音频。
+	readErr := d.s.fill(ctx, fh.frameSize)
 	if len(d.s.buf) < fh.frameSize {
-		if lookErr != nil {
-			return lookErr
+		if readErr != nil {
+			return readErr
 		}
 		return &TruncatedError{Offset: d.s.tell(), What: "frame body"}
-	}
-	// 帧后只能是流结束、下一帧帧头或 ID3v1 尾部标签(标签完整性下一轮确认)
-	if next := d.s.buf[fh.frameSize:]; lookErr == nil && len(next) > 0 && !isID3v1Start(next) {
-		if len(next) < 4 {
-			return d.trailingBytesErr(next)
-		}
-		if _, err := parseFrameHeader([4]byte(next)); err != nil {
-			// 下一帧是已识别的范围外格式时本帧照常解码,下一轮报告不支持
-			var u *UnsupportedError
-			if !errors.As(err, &u) {
-				return &CorruptError{Frame: d.framesDecoded, Detail: "lost sync after frame"}
-			}
-		}
 	}
 
 	frame := d.s.buf[:fh.frameSize]
@@ -87,6 +74,17 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 		ngr = 1
 	}
 	nch := fh.channels()
+	// 表 0 与缺失历史的静音分支可能不读任何位,因此不能只靠读位操作
+	// 检测物理截断。先验证整帧声明的预算,包括虚拟缺失历史的占位前缀。
+	bitsNeeded := 0
+	for gr := 0; gr < ngr; gr++ {
+		for ch := 0; ch < nch; ch++ {
+			bitsNeeded += si.gr[gr][ch].part2_3Length
+		}
+	}
+	if bitsNeeded > len(window)*8 {
+		return &CorruptError{Frame: d.framesDecoded, Detail: "part2_3_length exceeds available main data"}
+	}
 	n := fh.samplesPerFrame * nch
 	out := d.pcmReserve(n)
 	silentGr0 := false
@@ -237,6 +235,24 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 	if len(buf) < nch {
 		return 0, ErrSmallBuffer
 	}
+	pcm, err := d.readPCMView(ctx, len(buf)/nch)
+	return copy(buf, pcm) / nch, err
+}
+
+// NextPCM 返回下一段交错 float64 样本的借用视图,不复制 PCM。调用方不得
+// 修改返回的样本;视图只在下一次 ReadPCM 或 NextPCM 调用前有效。需要跨调用
+// 保存或异步消费时,调用方须复制样本。切片容量等于长度,不会暴露未交付样本。
+//
+// len(pcm)/Channels() 是采样帧数。gapless 裁剪、采样计数及错误/EOF 顺序与
+// ReadPCM 一致;成功调用返回非空切片,流结束后返回 nil, io.EOF。
+func (d *Decoder) NextPCM(ctx context.Context) ([]float64, error) {
+	return d.readPCMView(ctx, int(^uint(0)>>1))
+}
+
+// readPCMView 是两种输出接口共用的交付路径。maxFrames 由调用方保证为正;
+// 只交付可消费部分,保留尚未裁决的 gapless 尾部。
+func (d *Decoder) readPCMView(ctx context.Context, maxFrames int) ([]float64, error) {
+	nch := d.Channels()
 	for {
 		// 流未正常结束时扣留 gapless 尾裁余量,待 finish 裁决
 		hold := 0
@@ -245,17 +261,18 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 		}
 		avail := (len(d.pcm)-d.pcmOff)/nch - hold
 		if avail > 0 {
-			n := min(avail, len(buf)/nch)
-			copy(buf, d.pcm[d.pcmOff:d.pcmOff+n*nch])
-			d.pcmOff += n * nch
+			n := min(avail, maxFrames)
+			start, end := d.pcmOff, d.pcmOff+n*nch
+			pcm := d.pcm[start:end:end]
+			d.pcmOff = end
 			d.delivered += int64(n)
-			return n, nil
+			return pcm, nil
 		}
 		if d.finished {
 			if d.termErr != nil {
-				return 0, d.termErr
+				return nil, d.termErr
 			}
-			return 0, io.EOF
+			return nil, io.EOF
 		}
 		// 解码出错:已缓冲样本照常交付,错误排空后返回;尾裁只适用于正常结束的流
 		if err := d.decodeFrame(ctx); err != nil {
