@@ -35,33 +35,20 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 	}
 	fh, err := parseFrameHeader([4]byte(d.s.buf[:4]))
 	if err != nil {
-		return err
+		return wrapFrameErr(err, d.framesDecoded)
 	}
 	// 版本、采样率、声道数中途改变属范围外格式;码率与 padding 可逐帧变化
 	if fh.version != d.header.version || fh.sampleRate != d.header.sampleRate || fh.channels() != d.header.channels() {
 		return &UnsupportedError{Feature: "mid-stream format change"}
 	}
-	// 预取下一帧帧头用于同步确认;源出错或取消时若本帧已完整,先解码本帧,
-	// 错误留到下一轮报告,不吞掉最后一批样本
-	lookErr := d.s.fill(ctx, fh.frameSize+4)
+	// 同步只在初始化时确认。当前完整帧不依赖下一帧是否已经到达或合法;
+	// 后续头部/尾部的错误在下一轮报告,先交付已经收到的完整音频。
+	readErr := d.s.fill(ctx, fh.frameSize)
 	if len(d.s.buf) < fh.frameSize {
-		if lookErr != nil {
-			return lookErr
+		if readErr != nil {
+			return readErr
 		}
 		return &TruncatedError{Offset: d.s.tell(), What: "frame body"}
-	}
-	// 帧后只能是流结束、下一帧帧头或 ID3v1 尾部标签(标签完整性下一轮确认)
-	if next := d.s.buf[fh.frameSize:]; lookErr == nil && len(next) > 0 && !isID3v1Start(next) {
-		if len(next) < 4 {
-			return d.trailingBytesErr(next)
-		}
-		if _, err := parseFrameHeader([4]byte(next)); err != nil {
-			// 下一帧是已识别的范围外格式时本帧照常解码,下一轮报告不支持
-			var u *UnsupportedError
-			if !errors.As(err, &u) {
-				return &CorruptError{Frame: d.framesDecoded, Detail: "lost sync after frame"}
-			}
-		}
 	}
 
 	frame := d.s.buf[:fh.frameSize]
@@ -87,6 +74,17 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 		ngr = 1
 	}
 	nch := fh.channels()
+	// 表 0 与缺失历史的静音分支可能不读任何位,因此不能只靠读位操作
+	// 检测物理截断。先验证整帧声明的预算,包括虚拟缺失历史的占位前缀。
+	bitsNeeded := 0
+	for gr := 0; gr < ngr; gr++ {
+		for ch := 0; ch < nch; ch++ {
+			bitsNeeded += si.gr[gr][ch].part2_3Length
+		}
+	}
+	if bitsNeeded > len(window)*8 {
+		return &CorruptError{Frame: d.framesDecoded, Detail: "part2_3_length exceeds available main data"}
+	}
 	n := fh.samplesPerFrame * nch
 	out := d.pcmReserve(n)
 	silentGr0 := false

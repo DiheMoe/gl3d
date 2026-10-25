@@ -39,6 +39,57 @@ jobs:
           go vet ./...
           go test ./...
 
+  pcm-reference:
+    # Independent compatibility gate. This Ubuntu FFmpeg reference does not
+    # replace the FFmpeg/mpg123 versions frozen by corpus/manifest.json.
+    name: PCM compatibility (Ubuntu 24.04, FFmpeg 6.1)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Install distribution FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+          dpkg-query -W ffmpeg
+
+      - name: Generate short reference PCM and verify inputs
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import re
+          import subprocess
+
+          version = subprocess.check_output(["ffmpeg", "-version"], text=True).splitlines()[0]
+          print(version, flush=True)
+          if not re.match(r"ffmpeg version 6\.1(?:[.\- ])", version):
+              raise SystemExit("unexpected FFmpeg release line; review the compatibility reference upgrade")
+          manifest = json.loads(pathlib.Path("corpus/manifest.json").read_text())
+          for entry in manifest["entries"]:
+              if "five-minute" in entry.get("features", []):
+                  continue
+              source = pathlib.Path(entry["file"])
+              if hashlib.sha256(source.read_bytes()).hexdigest() != entry["sha256"]:
+                  raise SystemExit(f"input hash mismatch: {source}")
+              output = source.parent / "ref" / (source.stem + ".ffmpeg.f64le")
+              output.parent.mkdir(exist_ok=True)
+              subprocess.run([
+                  "ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(source),
+                  "-map", "0:a:0", "-f", "f64le", "-acodec", "pcm_f64le", str(output),
+              ], check=True)
+          PY
+
+      - name: Require every short PCM comparison
+        env:
+          GL3D_REQUIRE_REFERENCE: "1"
+        run: go test -count=1 -short -run '^TestEndToEndLavcCorpus$' -v .
+
   fuzz-smoke:
     name: fuzz smoke (30s per target)
     runs-on: ubuntu-latest

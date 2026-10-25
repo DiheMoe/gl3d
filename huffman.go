@@ -1,6 +1,9 @@
 package gl3d
 
-import "fmt"
+import (
+	"fmt"
+	"math/bits"
+)
 
 // Huffman 解码。码表(huffman_tables.go)由 tools/huffgen 从 minimp3.h(CC0)
 // 提取的协议事实生成,均为完备前缀码。
@@ -139,36 +142,31 @@ func (d *huffDecoder) extend(br *bitReader, v, linbits int) (int, error) {
 }
 
 // decodeQuad 解码 count1 区的一个四元组(count1table_select 选择表 A/B)。
-func decodeQuad(br *bitReader, tableB bool) ([4]int, error) {
-	bits := br.peek32()
+// limit 是已验证不超过物理窗口的 granule 位终点。末尾不足一个完整码字或
+// 其符号位时返回 false,保留 br.pos,由调用方把剩余位作为 stuffing 丢弃。
+func decodeQuad(br *bitReader, tableB bool, limit int) ([4]int, bool) {
+	peek := br.peek32()
 	var e uint16
 	if tableB {
-		e = huff.quadB[bits>>28]
+		e = huff.quadB[peek>>28]
 	} else {
-		e = huff.quadA[bits>>26]
+		e = huff.quadA[peek>>26]
 	}
 	n := int(e >> 8)
-	if n == 0 {
-		return [4]int{}, &CorruptError{Frame: -1, Detail: "invalid count1 codeword"}
+	// 两张表都是完备前缀码;低 4 位各表示一个必须读取符号位的非零值。
+	total := n + bits.OnesCount8(uint8(e))
+	if br.pos+total > limit {
+		return [4]int{}, false
 	}
-	if br.pos+n > len(br.data)*8 {
-		return [4]int{}, &CorruptError{Frame: -1, Detail: "count1 data underrun"}
-	}
-	br.pos += n
+	peek <<= n
 	var out [4]int
 	for i := 0; i < 4; i++ {
 		if e&(8>>i) == 0 {
 			continue
 		}
-		sign, err := br.read(1)
-		if err != nil {
-			return [4]int{}, &CorruptError{Frame: -1, Detail: "count1 sign bit underrun"}
-		}
-		if sign != 0 {
-			out[i] = -1
-		} else {
-			out[i] = 1
-		}
+		out[i] = 1 - 2*int(peek>>31)
+		peek <<= 1
 	}
-	return out, nil
+	br.pos += total
+	return out, true
 }

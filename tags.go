@@ -92,19 +92,24 @@ type lameTag struct {
 }
 
 // parseLAMETag 读取 Xing/Info 字段区之后的 36 字节 LAME 扩展标签;不足
-// 36 字节或编码器字段含不可打印字节时返回 ok=false,视为无 LAME 标签。
+// 36 字节、编码器字段为空或格式不合法时返回 ok=false,视为无 LAME 标签。
+// 兼容写入相同扩展布局的编码器名称;NUL 只能作为字段末尾的填充。
 func parseLAMETag(b []byte) (l *lameTag, ok bool) {
 	if len(b) < 36 {
 		return nil, false
 	}
-	for _, c := range b[:9] {
-		if c != 0 && (c < 32 || c > 126) {
+	encoder := strings.TrimRight(string(b[:9]), "\x00")
+	if strings.TrimSpace(encoder) == "" {
+		return nil, false
+	}
+	for _, c := range encoder {
+		if c < 32 || c > 126 {
 			return nil, false
 		}
 	}
 	// enc_delay 与 enc_padding 各 12 bit,按 [d8][d4p4][p8] 紧凑存放
 	return &lameTag{
-		encoder:    strings.TrimRight(string(b[:9]), "\x00"),
+		encoder:    encoder,
 		vbrMethod:  int(b[9] & 0x0F),
 		encDelay:   int(b[21])<<4 | int(b[22])>>4,
 		encPadding: int(b[22]&0x0F)<<8 | int(b[23]),
