@@ -6,7 +6,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -33,34 +32,36 @@ func run(in, out string) (*summary, error) {
 		return nil, err
 	}
 	defer src.Close()
-	dst, err := os.Create(out)
+	srcInfo, err := src.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	d, err := gl3d.NewDecoder(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	// Inspect the actual opened file before truncating it, so aliases and a path
+	// changed between open and stat cannot destroy the input.
+	dst, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
 	}
 	defer dst.Close()
-
-	ctx := context.Background()
-	d, err := gl3d.NewDecoder(ctx, bufio.NewReader(src))
+	dstInfo, err := dst.Stat()
 	if err != nil {
 		return nil, err
 	}
-	w := bufio.NewWriter(dst)
-	buf := make([]float64, 8192*d.Channels())
-	var b [8]byte
-	for {
-		n, err := d.ReadPCM(ctx, buf)
-		for _, v := range buf[:n*d.Channels()] {
-			binary.LittleEndian.PutUint64(b[:], math.Float64bits(v))
-			w.Write(b[:])
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+	if os.SameFile(srcInfo, dstInfo) {
+		return nil, fmt.Errorf("input and output refer to the same file")
+	}
+	if dstInfo.Mode().IsRegular() {
+		if err := dst.Truncate(0); err != nil {
 			return nil, err
 		}
 	}
-	if err := w.Flush(); err != nil {
+	if err := writePCM(ctx, d, dst); err != nil {
 		return nil, err
 	}
 	return &summary{
@@ -71,6 +72,36 @@ func run(in, out string) (*summary, error) {
 		DecodedFrames: d.DecodedFrames(),
 		Trimmed:       d.Trimmed(),
 	}, dst.Close()
+}
+
+// Consume the borrowed PCM before requesting another chunk. Serialize into one
+// reusable byte block: no float64 copy and no per-sample Writer calls.
+func writePCM(ctx context.Context, d *gl3d.Decoder, w io.Writer) error {
+	var encoded [32 << 10]byte
+	for {
+		pcm, err := d.NextPCM(ctx)
+		for len(pcm) > 0 {
+			n := min(len(pcm), len(encoded)/8)
+			b := encoded[:n*8]
+			for i, v := range pcm[:n] {
+				binary.LittleEndian.PutUint64(b[i*8:], math.Float64bits(v))
+			}
+			written, werr := w.Write(b)
+			if werr != nil {
+				return werr
+			}
+			if written != len(b) {
+				return io.ErrShortWrite
+			}
+			pcm = pcm[n:]
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func main() {

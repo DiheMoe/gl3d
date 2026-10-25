@@ -237,6 +237,24 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 	if len(buf) < nch {
 		return 0, ErrSmallBuffer
 	}
+	pcm, err := d.readPCMView(ctx, len(buf)/nch)
+	return copy(buf, pcm) / nch, err
+}
+
+// NextPCM 返回下一段交错 float64 样本的借用视图,不复制 PCM。调用方不得
+// 修改返回的样本;视图只在下一次 ReadPCM 或 NextPCM 调用前有效。需要跨调用
+// 保存或异步消费时,调用方须复制样本。切片容量等于长度,不会暴露未交付样本。
+//
+// len(pcm)/Channels() 是采样帧数。gapless 裁剪、采样计数及错误/EOF 顺序与
+// ReadPCM 一致;成功调用返回非空切片,流结束后返回 nil, io.EOF。
+func (d *Decoder) NextPCM(ctx context.Context) ([]float64, error) {
+	return d.readPCMView(ctx, int(^uint(0)>>1))
+}
+
+// readPCMView 是两种输出接口共用的交付路径。maxFrames 由调用方保证为正;
+// 只交付可消费部分,保留尚未裁决的 gapless 尾部。
+func (d *Decoder) readPCMView(ctx context.Context, maxFrames int) ([]float64, error) {
+	nch := d.Channels()
 	for {
 		// 流未正常结束时扣留 gapless 尾裁余量,待 finish 裁决
 		hold := 0
@@ -245,17 +263,18 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 		}
 		avail := (len(d.pcm)-d.pcmOff)/nch - hold
 		if avail > 0 {
-			n := min(avail, len(buf)/nch)
-			copy(buf, d.pcm[d.pcmOff:d.pcmOff+n*nch])
-			d.pcmOff += n * nch
+			n := min(avail, maxFrames)
+			start, end := d.pcmOff, d.pcmOff+n*nch
+			pcm := d.pcm[start:end:end]
+			d.pcmOff = end
 			d.delivered += int64(n)
-			return n, nil
+			return pcm, nil
 		}
 		if d.finished {
 			if d.termErr != nil {
-				return 0, d.termErr
+				return nil, d.termErr
 			}
-			return 0, io.EOF
+			return nil, io.EOF
 		}
 		// 解码出错:已缓冲样本照常交付,错误排空后返回;尾裁只适用于正常结束的流
 		if err := d.decodeFrame(ctx); err != nil {
