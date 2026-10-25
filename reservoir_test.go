@@ -31,6 +31,34 @@ func TestReservoirAssemble(t *testing.T) {
 	}
 }
 
+func TestReservoirBorrowsCurrentFrame(t *testing.T) {
+	r := newReservoir(511)
+	frame := []byte("main data")
+	w, missing := r.assemble(0, frame)
+	if missing != 0 || len(w) != len(frame) || &w[0] != &frame[0] {
+		t.Fatal("zero backpointer should borrow frame data")
+	}
+}
+
+func TestReservoirKeepsExactSuffix(t *testing.T) {
+	for _, limit := range []int{255, 511} {
+		r := newReservoir(limit)
+		var history []byte
+		for i, size := range []int{0, 1, 17, limit - 1, limit, limit + 1, 1441, 3, 0, 77} {
+			frame := make([]byte, size)
+			for j := range frame {
+				frame[j] = byte(i*17 + j)
+			}
+			history = append(history, frame...)
+			r.advance(frame)
+			want := history[max(0, len(history)-limit):]
+			if !bytes.Equal(r.buf, want) || cap(r.buf) != limit {
+				t.Fatalf("limit=%d, step=%d: len=%d cap=%d, want exact %d-byte suffix", limit, i, len(r.buf), cap(r.buf), len(want))
+			}
+		}
+	}
+}
+
 // main_data_begin 超出已收到的数据(码流从中途开始)时,缺失的前缀补 0,
 // 视图中各字节的偏移与完整码流一致。
 func TestReservoirMissingHistory(t *testing.T) {

@@ -9,7 +9,7 @@ import "fmt"
 // 在一级表直接命中;更长的码字按 8 位前缀分组,每组一张以剩余位为下标的二级表。
 // 查表结构在 init 时由 huffman_tables.go 的码字列表推导,不含新的协议数据。
 type huffDecoder struct {
-	pair  [32]huffFast
+	pair  [32]*huffFast
 	quadA [64]uint16 // 以 6 位为下标:码长<<8 | 标志位(vwxy)
 	quadB [16]uint16 // 以 4 位为下标
 }
@@ -17,9 +17,8 @@ type huffDecoder struct {
 // huffFast 是一张 big_values 表的两级查表。表项:叶子为 码长<<8 | x<<4 | y;
 // 子表指针为 1<<31 | 子表位数<<24 | 子表在 l2 中的偏移;0 表示无此码字。
 type huffFast struct {
-	valid bool
-	l1    [256]uint32
-	l2    []uint32
+	l1 [256]uint32
+	l2 []uint32
 }
 
 const huffSubFlag = 1 << 31
@@ -28,8 +27,14 @@ var huff = newHuffDecoder()
 
 func newHuffDecoder() *huffDecoder {
 	d := &huffDecoder{}
+	// 16..23 与 24..31 各自共享一套只读码字,仅 huffLinbits 按表号变化。
 	for t, entries := range huffBigTables {
-		if entries != nil {
+		switch {
+		case t >= 17 && t <= 23:
+			d.pair[t] = d.pair[16]
+		case t >= 25 && t <= 31:
+			d.pair[t] = d.pair[24]
+		case entries != nil:
 			d.pair[t] = buildHuffFast(entries)
 		}
 	}
@@ -50,8 +55,8 @@ func fillPrefix[T uint16 | uint32](tab []T, width int, code uint32, n int, v T) 
 	}
 }
 
-func buildHuffFast(entries []huffEntry) huffFast {
-	f := huffFast{valid: true}
+func buildHuffFast(entries []huffEntry) *huffFast {
+	f := &huffFast{}
 	// 码长超过 8 的码字按 8 位前缀分组,子表位数取组内最长码的剩余位数
 	var subBits [256]int
 	for _, e := range entries {
@@ -87,8 +92,8 @@ func (d *huffDecoder) decodePair(br *bitReader, table int) (int, int, error) {
 	if table == 0 {
 		return 0, 0, nil
 	}
-	f := &d.pair[table]
-	if !f.valid {
+	f := d.pair[table]
+	if f == nil {
 		return 0, 0, &CorruptError{Frame: -1, Detail: "invalid huffman table number"}
 	}
 	bits := br.peek32()

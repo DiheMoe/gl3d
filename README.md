@@ -27,3 +27,19 @@ for {
 	}
 }
 ```
+
+## Performance
+
+The hot-path optimization shares Huffman prefix tables, caches exact quarter-step
+dequantization gains, synthesizes directly into destination PCM, and avoids copying
+current-frame reservoir data when there is no backpointer.
+
+The `pcmdiff` tool compares PCM streams using fixed-size blocks rather than loading
+both files into memory. This changes memory growth from proportional to audio duration
+to a fixed buffer plus per-channel statistics.
+
+To compare decode throughput on the same host, Go version and corpus:
+
+```sh
+go test -run '^$' -bench '^BenchmarkDecode$' -benchmem -cpu=1 -count=5
+```

@@ -13,7 +13,7 @@ const maxMainData = 1441
 
 func newReservoir(max int) *reservoir {
 	return &reservoir{
-		buf: make([]byte, 0, max+maxMainData),
+		buf: make([]byte, 0, max),
 		max: max,
 		win: make([]byte, 0, max+maxMainData),
 	}
@@ -22,10 +22,14 @@ func newReservoir(max int) *reservoir {
 func (r *reservoir) len() int { return len(r.buf) }
 
 // assemble 返回该帧完整 main_data 视图:reservoir 尾部 mainDataBegin 字节起,
-// 接上当前帧自带的 main 字节;视图在下一次 assemble 前有效。码流从中途开始时
+// 接上当前帧自带的 main 字节;视图只保证在本帧解码期间有效,要求 frameMain
+// 在此期间保持有效且不变。无回指时直接借用 frameMain。码流从中途开始时
 // mainDataBegin 可以超过已收到的数据量:视图开头补 missing 个 0 字节占位,
 // 使偏移与完整码流一致,占位字节不是码流数据。
 func (r *reservoir) assemble(mainDataBegin int, frameMain []byte) (window []byte, missing int) {
+	if mainDataBegin == 0 {
+		return frameMain, 0
+	}
 	missing = max(mainDataBegin-len(r.buf), 0)
 	r.win = r.win[:missing]
 	clear(r.win)
@@ -36,9 +40,12 @@ func (r *reservoir) assemble(mainDataBegin int, frameMain []byte) (window []byte
 
 // advance 在帧处理完成后把该帧自带的 main 字节并入 reservoir,封顶 max。
 func (r *reservoir) advance(frameMain []byte) {
-	r.buf = append(r.buf, frameMain...)
-	if len(r.buf) > r.max {
-		copy(r.buf, r.buf[len(r.buf)-r.max:])
+	if len(frameMain) >= r.max {
 		r.buf = r.buf[:r.max]
+		copy(r.buf, frameMain[len(frameMain)-r.max:])
+		return
 	}
+	keep := min(len(r.buf), r.max-len(frameMain))
+	copy(r.buf, r.buf[len(r.buf)-keep:])
+	r.buf = append(r.buf[:keep], frameMain...)
 }
