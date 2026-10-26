@@ -11,6 +11,12 @@ import (
 // 16 项和。
 type refSynth struct{ v [1024]float64 }
 
+// 公式对照需要保留原列;生产合成路径则直接消耗这份暂存列。
+func testSynthColumn(st *synthState, s *[32]float64, out *[32]float64) {
+	x := *s
+	st.synthColumn(&x, out[:], 1)
+}
+
 func (r *refSynth) column(s *[32]float64) [32]float64 {
 	copy(r.v[64:], r.v[:960])
 	for i := 0; i < 64; i++ {
@@ -45,7 +51,7 @@ func TestSynthesisMatchesISODefinition(t *testing.T) {
 		for k := range col {
 			col[k] = rng.Float64()*2 - 1
 		}
-		st.synthColumn(&col, &out)
+		testSynthColumn(&st, &col, &out)
 		want := ref.column(&col)
 		for i := range out {
 			if d := math.Abs(out[i] - want[i]); d > 1e-12 {
@@ -109,7 +115,7 @@ func TestSynthesisZeroInput(t *testing.T) {
 	var col [32]float64
 	var out [32]float64
 	for c := 0; c < 20; c++ {
-		st.synthColumn(&col, &out)
+		testSynthColumn(&st, &col, &out)
 	}
 	for i := range out {
 		if out[i] != 0 {
@@ -127,7 +133,7 @@ func TestSynthesisDCConverges(t *testing.T) {
 	converged := false
 	for c := 0; c < 40; c++ {
 		col[0] = 1
-		st.synthColumn(&col, &out)
+		testSynthColumn(&st, &col, &out)
 		if c > 0 && math.Abs(out[0]-prev) < 1e-9 && out[0] != 0 {
 			converged = true
 		}
@@ -144,10 +150,10 @@ func TestSynthesisStateEvolution(t *testing.T) {
 	var col [32]float64
 	var out [32]float64
 	col[0] = 1
-	st.synthColumn(&col, &out)
+	testSynthColumn(&st, &col, &out)
 	first := out
 	col[0] = 0
-	st.synthColumn(&col, &out)
+	testSynthColumn(&st, &col, &out)
 	second := out
 	same := true
 	for i := range first {
@@ -157,5 +163,41 @@ func TestSynthesisStateEvolution(t *testing.T) {
 	}
 	if same {
 		t.Fatal("filter state did not evolve between columns")
+	}
+}
+
+// 直接交错写入必须保留另一声道,且在连续 granule 间保持滤波器历史。
+func TestSynthesisGranuleInterleavedMatchesDefinition(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	var st synthState
+	var ref refSynth
+	for gr := 0; gr < 4; gr++ {
+		var td [32][18]float64
+		for sb := range td {
+			for j := range td[sb] {
+				td[sb][j] = rng.Float64()*2 - 1
+			}
+		}
+		var pcm [1152]float64
+		for i := range pcm {
+			pcm[i] = 123
+		}
+		synthGranule(&st, &td, pcm[:], 2)
+		for j := 0; j < 18; j++ {
+			var col [32]float64
+			for sb := range col {
+				col[sb] = td[sb][j]
+			}
+			want := ref.column(&col)
+			for i, v := range want {
+				p := 2 * (j*32 + i)
+				if diff := math.Abs(pcm[p] - v); diff > 1e-12 {
+					t.Fatalf("granule %d sample %d: got %.17g, want %.17g", gr, p/2, pcm[p], v)
+				}
+				if pcm[p+1] != 123 {
+					t.Fatalf("overwrote other channel at %d", p+1)
+				}
+			}
+		}
 	}
 }

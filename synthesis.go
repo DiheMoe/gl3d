@@ -102,12 +102,13 @@ type synthState struct {
 	pos int
 }
 
-// synthColumn 处理一列 32 个子带采样,输出 32 个 PCM 样本。
+// synthColumn 就地变换一列 32 个子带采样,直接写入间隔 stride 的 32 个 PCM
+// 样本。输入列由 synthGranule 暂存,调用后不再保留。
 // 记 X 为 S 的 32 点 DCT-II,由余弦的周期与对称性,V[i] = Σ_k N[i][k]·S[k]
 // 在 i<16 时为 X[16+i],i=16 时为 0,17≤i<48 时为 −X[48−i],i≥48 时为 −X[i−48]。
-func (st *synthState) synthColumn(s *[32]float64, out *[32]float64) {
-	x := *s
-	dct32(&x)
+func (st *synthState) synthColumn(x *[32]float64, pcm []float64, stride int) {
+	pcm = pcm[:31*stride+1]
+	dct32(x)
 	st.pos = (st.pos + 1024 - 64) & 1023
 	v := (*[64]float64)(st.v[st.pos : st.pos+64])
 	for i := 0; i < 16; i++ {
@@ -124,7 +125,7 @@ func (st *synthState) synthColumn(s *[32]float64, out *[32]float64) {
 	w := (*[1024]float64)(st.v[st.pos : st.pos+1024])
 	d := &synthWindowD
 	for i := 0; i < 32; i++ {
-		out[i] = w[i]*d[i] + w[96+i]*d[32+i] + w[128+i]*d[64+i] + w[224+i]*d[96+i] +
+		pcm[i*stride] = w[i]*d[i] + w[96+i]*d[32+i] + w[128+i]*d[64+i] + w[224+i]*d[96+i] +
 			w[256+i]*d[128+i] + w[352+i]*d[160+i] + w[384+i]*d[192+i] + w[480+i]*d[224+i] +
 			w[512+i]*d[256+i] + w[608+i]*d[288+i] + w[640+i]*d[320+i] + w[736+i]*d[352+i] +
 			w[768+i]*d[384+i] + w[864+i]*d[416+i] + w[896+i]*d[448+i] + w[992+i]*d[480+i]
@@ -136,14 +137,10 @@ func (st *synthState) synthColumn(s *[32]float64, out *[32]float64) {
 func synthGranule(st *synthState, td *[32][18]float64, pcm []float64, stride int) {
 	pcm = pcm[:575*stride+1]
 	for j := 0; j < 18; j++ {
-		var col, out [32]float64
+		var col [32]float64
 		for k := 0; k < 32; k++ {
 			col[k] = td[k][j]
 		}
-		st.synthColumn(&col, &out)
-		p := pcm[j*32*stride:]
-		for i, v := range out {
-			p[i*stride] = v
-		}
+		st.synthColumn(&col, pcm[j*32*stride:], stride)
 	}
 }
