@@ -39,6 +39,40 @@ jobs:
           go vet ./...
           go test ./...
 
+  pcm-reference:
+    # Ubuntu 24.04 的 FFmpeg 6.1 只作兼容性检查,冻结的参考版本见 corpus/manifest.json
+    name: PCM reference (Ubuntu 24.04, FFmpeg 6.1)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Install reference decoders
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg mpg123
+          ffmpeg -version | head -n 1 | grep -E '^ffmpeg version 6\.1([.-]| )'
+
+      - name: Verify corpus hashes
+        run: jq -r '.entries[] | "\(.sha256)  \(.file)"' corpus/manifest.json | sha256sum -c -
+
+      - name: Generate reference PCM
+        run: go -C tools run ./refgen "$PWD"/corpus/synthetic/*.mp3 "$PWD"/corpus/synthetic/ref
+
+      - name: Compare every corpus entry with its reference
+        run: |
+          set -o pipefail
+          go test -count=1 -run '^TestEndToEndLavcCorpus$' -v . | tee e2e.log
+          want=$(jq '.entries | length' corpus/manifest.json)
+          got=$(grep -c -- '--- PASS: TestEndToEndLavcCorpus/' e2e.log)
+          if grep -q -- '--- SKIP' e2e.log || [ "$got" -ne "$want" ]; then
+            echo "compared $got of $want corpus entries" >&2
+            exit 1
+          fi
+
   fuzz-smoke:
     name: fuzz smoke (30s per target)
     runs-on: ubuntu-latest
