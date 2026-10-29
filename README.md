@@ -43,3 +43,25 @@ To compare decode throughput on the same host, Go version and corpus:
 ```sh
 go test -run '^$' -bench '^BenchmarkDecode$' -benchmem -cpu=1 -count=5
 ```
+
+## Format limitation
+
+MPEG-2.5 at 8 kHz with a mixed short block (`block_type=2`,
+`mixed_block_flag=1`) currently returns `UnsupportedError`. Its frequency-band
+layout needs further validation. Ordinary short/long blocks at 8 kHz and mixed
+blocks at other supported sample rates remain supported.
+
+## Validation
+
+```sh
+go test ./...
+go test -race -short ./...
+cd tools
+go vet ./...
+go test ./...
+```
+
+PCM reference files are generated separately and are not stored in Git. End-to-end
+tests skip absent references by default; `GL3D_REQUIRE_REFERENCE=1` makes a
+missing reference fail. Reference-tool versions are recorded in
+`corpus/manifest.json`.

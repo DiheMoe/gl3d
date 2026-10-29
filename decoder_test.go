@@ -29,7 +29,7 @@ type dataWithErrReader struct {
 
 func (d *dataWithErrReader) Read(p []byte) (int, error) {
 	n, err := d.r.Read(p)
-	if err == io.EOF {
+	if err == io.EOF || n > 0 && d.r.Len() == 0 {
 		err = d.err
 	}
 	return n, err

@@ -1,8 +1,11 @@
 package gl3d
 
 import (
+	"bytes"
+	"errors"
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -259,5 +262,173 @@ func TestMidsideStereo(t *testing.T) {
 	}
 	if math.Abs(l[2]) > 1e-12 || math.Abs(r[2]-inv) > 1e-12 {
 		t.Fatalf("l[2]=%g r[2]=%g, want 0/%g", l[2], r[2], inv)
+	}
+}
+
+// big_values 表 0 不读取任何位。即使 576 条谱线都由表 0 给出,声明的
+// part2_3_length 也不能越过物理窗口;scalefactor/big_values 跨逻辑界限
+// 仍然是损坏,不能与允许丢弃的 count1 stuffing 混为一谈。
+func TestDecodeSpectraEnforcesBitBudgets(t *testing.T) {
+	h, _ := parseFrameHeader(mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0))
+	bm := bandMapFor(MPEG1, 0, shapeLong)
+	cases := []struct {
+		name string
+		gi   granuleInfo
+		data []byte
+	}{
+		{"table zero past physical end", granuleInfo{part2_3Length: 9, bigValues: 288}, []byte{0}},
+		{"scalefactors past granule end", granuleInfo{part2_3Length: 1, scalefacCompress: 5}, make([]byte, 16)},
+		{"big value sign past granule end", granuleInfo{part2_3Length: 2, bigValues: 1, tableSelect: [3]int{1, 1, 1}}, []byte{0x40}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var si sideInfo
+			si.gr[0][0] = tc.gi
+			br := &bitReader{data: tc.data}
+			var gs granuleSpectrum
+			err := decodeSpectra(&h, &si, 0, 0, br, bm, shapeLong, nil, false, &gs)
+			var corrupt *CorruptError
+			if !errors.As(err, &corrupt) {
+				t.Fatalf("got %v, want CorruptError", err)
+			}
+		})
+	}
+}
+
+// 该帧恰好在 count1 的不完整码字后结束。后面是否还能预读下一帧不应
+// 改变 stuffing 的解释;两帧都只编码零谱线,应完整交付 2304 个静音样本。
+func TestCount1StuffingAtPhysicalWindowEnd(t *testing.T) {
+	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0), 417, 2)
+	for _, off := range []int{0, 417} {
+		si := data[off+4 : off+21]
+		setBits(si, 18, 12, 3167)
+		setBits(si, 18+12, 9, 288)
+		setBits(si, 18+59, 12, 1)
+	}
+	pcm := decodePCM(t, data)
+	if len(pcm) != 2304 {
+		t.Fatalf("decoded %d mono samples, want 2304", len(pcm))
+	}
+	for i, v := range pcm {
+		if v != 0 {
+			t.Fatalf("sample %d = %g, want silence", i, v)
+		}
+	}
+}
+
+// 检查增益查表所依赖的整个字段范围,覆盖最小短区指数 -390/4 与最大
+// 指数 45/4。参照直接计算公式,不使用 gainQuarter 表。
+func TestDequantizeGainExtremes(t *testing.T) {
+	for sfc := 0; sfc < 512; sfc++ {
+		for _, intensity := range []bool{false, true} {
+			widths, _, err := lsfScfSizes(sfc, intensity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, width := range widths {
+				if width > 5 {
+					t.Fatalf("scalefactor width %d exceeds gain table's 31-value bound", width)
+				}
+			}
+		}
+	}
+	for _, shape := range []blockShape{shapeLong, shapeShort, shapeMixed} {
+		bm := bandMapFor(MPEG2, 0, shape)
+		for _, gg := range []int{0, 255} {
+			for _, scale := range []int{0, 1} {
+				for _, sub := range []int{0, 7} {
+					for _, scfVal := range []int{0, 31} {
+						for _, pre := range []int{0, 1} {
+							gi := granuleInfo{globalGain: gg, scalefacScale: scale, subblockGain: [3]int{sub, sub, sub}, preflag: pre}
+							var scf [40]int
+							var is [576]int
+							var xr [576]float64
+							for b := range scf {
+								scf[b] = scfVal
+							}
+							for i := range is {
+								is[i] = 1
+							}
+							dequantize(&gi, bm, scf[:], &is, 576, &xr)
+							for i, got := range xr {
+								b := bm.scfIdx[i]
+								s := float64(scfVal)
+								if pre != 0 && bm.long {
+									s += float64(pretab[b])
+								}
+								e := float64(gg-210) / 4
+								if bm.short[i] {
+									e -= 2 * float64(sub)
+								}
+								want := math.Exp2(e - float64(scale+1)*s/2)
+								if got != want {
+									t.Fatalf("shape %d line %d: got %.17g, want %.17g", shape, i, got, want)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// 构造只含右声道第 96 条非零谱线的 LSF 流。intensity 版本在右声道
+// 使用 compress=502,scalefactor 全零;普通 stereo 版本使用 compress=0。
+// 右声道的非零频带不会执行 intensity pan,两条流的有效频谱应完全相同。
+func lsfPreflagStream(t *testing.T, versionBits int, intensity bool) []byte {
+	t.Helper()
+	var si, md bitWriter
+	si.write(0, 8+2)
+	for ch := 0; ch < 2; ch++ {
+		part, big, sfc := 0, 0, 0
+		if ch == 1 {
+			part, big = 51, 49
+			if intensity {
+				part, sfc = 75, 502
+			}
+		}
+		si.write(part, 12)
+		si.write(big, 9)
+		si.write(190, 8)
+		si.write(sfc, 9)
+		si.write(0, 1)
+		for i := 0; i < 3; i++ {
+			si.write(1, 5)
+		}
+		si.write(7, 4)
+		si.write(7, 3)
+		si.write(0, 2)
+	}
+	if intensity {
+		md.write(0, 24) // compress=502:8 个 2 位和 8 个 1 位 scalefactor
+	}
+	for p := 0; p < 48; p++ {
+		writeTable1Pair(t, &md, 0, 0)
+	}
+	writeTable1Pair(t, &md, 1, 0)
+	mode, ext := 0, 0
+	if intensity {
+		mode, ext = 1, 1
+	}
+	header := mkHeader(versionBits, 1, 1, 8, 0, 0, mode, ext, 0)
+	h, err := parseFrameHeader(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := make([]byte, h.frameSize)
+	copy(frame, header[:])
+	copy(frame[4:], si.bytes)
+	copy(frame[4+len(si.bytes):], md.bytes)
+	return bytes.Repeat(frame, 4)
+}
+
+func TestLSFIntensityDoesNotApplyNormalPreflag(t *testing.T) {
+	for _, versionBits := range []int{2, 0} {
+		plain := decodePCM(t, lsfPreflagStream(t, versionBits, false))
+		intensity := decodePCM(t, lsfPreflagStream(t, versionBits, true))
+		if !slices.Equal(intensity, plain) {
+			t.Fatalf("MPEG version bits %d: intensity compress=502 changed the non-intensity frequency band's gain", versionBits)
+		}
 	}
 }

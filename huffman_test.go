@@ -57,9 +57,12 @@ func TestHuffmanQuadRoundTrip(t *testing.T) {
 				}
 			}
 			br := &bitReader{data: w.bytes}
-			q, err := decodeQuad(br, ti == 1)
-			if err != nil {
-				t.Fatalf("quad table %d entry %+v: %v", ti, e, err)
+			q, complete := decodeQuad(br, ti == 1, w.nbits)
+			if !complete {
+				t.Fatalf("quad table %d entry %+v: incomplete", ti, e)
+			}
+			if br.pos != w.nbits {
+				t.Fatalf("quad table %d consumed %d bits, want %d", ti, br.pos, w.nbits)
 			}
 			for i := 0; i < 4; i++ {
 				want := 0
@@ -108,7 +111,35 @@ func TestHuffmanErrors(t *testing.T) {
 		t.Fatal("want error for bitstream underrun")
 	}
 	br4 := &bitReader{data: []byte{0x00}}
-	if _, err := decodeQuad(br4, false); err == nil {
-		t.Fatal("want error for quad underrun/invalid")
+	if _, complete := decodeQuad(br4, false, 8); complete {
+		t.Fatal("want incomplete quad at granule end")
+	}
+}
+
+// count1 的码字与符号位必须作为整体落在 granule 内。不足的后缀属于
+// stuffing,即使物理缓冲里已有下一 granule 的字节也不能越界消费。
+func TestHuffmanQuadStopsAtGranuleBoundary(t *testing.T) {
+	for ti, entries := range [2][]quadEntry{huffQuadA, huffQuadB} {
+		for _, e := range entries {
+			for offset := 0; offset < 8; offset++ {
+				var w bitWriter
+				w.write(0, offset)
+				w.write(int(e.code), int(e.length))
+				for i := 0; i < 4; i++ {
+					if e.flags&(8>>i) != 0 {
+						w.write(i&1, 1)
+					}
+				}
+				for limit := offset; limit < w.nbits; limit++ {
+					// 分别测试物理窗口恰好结束与后面仍有足量数据。
+					for _, data := range [][]byte{w.bytes[:(limit+7)/8], append(append([]byte{}, w.bytes...), 0xA5, 0x5A)} {
+						br := &bitReader{data: data, pos: offset}
+						if _, complete := decodeQuad(br, ti == 1, limit); complete || br.pos != offset {
+							t.Fatalf("table %d entry %+v offset %d limit %d: complete=%v pos=%d", ti, e, offset, limit, complete, br.pos)
+						}
+					}
+				}
+			}
+		}
 	}
 }
