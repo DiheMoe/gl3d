@@ -28,7 +28,23 @@ for {
 }
 ```
 
-### Format limitation
+## Performance
+
+The hot-path optimization shares Huffman prefix tables, caches exact quarter-step
+dequantization gains, synthesizes directly into destination PCM, and avoids copying
+current-frame reservoir data when there is no backpointer.
+
+The `pcmdiff` tool compares PCM streams using fixed-size blocks rather than loading
+both files into memory. This changes memory growth from proportional to audio duration
+to a fixed buffer plus per-channel statistics.
+
+To compare decode throughput on the same host, Go version and corpus:
+
+```sh
+go test -run '^$' -bench '^BenchmarkDecode$' -benchmem -cpu=1 -count=5
+```
+
+## Format limitation
 
 MPEG-2.5 at 8 kHz with a mixed short block (`block_type=2`,
 `mixed_block_flag=1`) currently returns `UnsupportedError`. Its frequency-band
@@ -45,10 +61,7 @@ go vet ./...
 go test ./...
 ```
 
-PCM reference files are generated separately and are not stored in Git. Local
-end-to-end tests skip absent references by default. Set `GL3D_REQUIRE_REFERENCE=1`
-to make a missing reference fail the test. CI generates references for all 19 short
-corpus entries with Ubuntu 24.04's FFmpeg 6.1 release line and requires every
-comparison to run. This compatibility check is separate from the reference-tool
-versions recorded in `corpus/manifest.json`; it does not certify those frozen
-versions.
+PCM reference files are generated separately and are not stored in Git. End-to-end
+tests skip absent references by default; `GL3D_REQUIRE_REFERENCE=1` makes a
+missing reference fail. Reference-tool versions are recorded in
+`corpus/manifest.json`.
