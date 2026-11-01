@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"testing"
 )
 
@@ -16,21 +15,30 @@ func id3v1Tag() []byte {
 	return tag
 }
 
-// 后续坏帧头不能使已完整收到的前一帧丢失,报错序号指向坏帧头。
+// 帧尾之后既不是帧头也不是标签时,严格模式无从区分完整帧后的垃圾与少了字节的帧,
+// 这一帧不交付,报错序号指向它;宽松模式交付全部完整帧并记入报告。
 func TestCompleteFramesBeforeBadHeader(t *testing.T) {
 	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 3)
 	data = append(data, "JUNK"...)
 	d, err := drain(t, bytes.NewReader(data))
 	var corrupt *CorruptError
-	if !errors.As(err, &corrupt) || corrupt.Frame != 3 {
-		t.Fatalf("error=%v, want CorruptError at frame 3", err)
+	if !errors.As(err, &corrupt) || corrupt.Frame != 2 {
+		t.Fatalf("strict: error=%v, want CorruptError at frame 2", err)
 	}
-	if d.Frames() != 3456 {
-		t.Fatalf("delivered %d frames, want 3456", d.Frames())
+	if d.Frames() != 2304 {
+		t.Fatalf("strict: delivered %d frames, want 2304", d.Frames())
+	}
+	d, _, err = decodeMode(t, bytes.NewReader(data))
+	if err != nil || d.Frames() != 3456 {
+		t.Fatalf("lenient: delivered %d frames, err=%v; want 3456 and no error", d.Frames(), err)
+	}
+	if f := d.Report().First; f == nil || f.Kind != IssueCorrupt || f.Frame != 2 {
+		t.Fatalf("lenient: first issue %+v, want corrupt at frame 2", f)
 	}
 }
 
-// 表 0 及缺失 reservoir 的静音路径可以不读位,仍须拒绝超过窗口的总预算。
+// 表 0 及缺失 reservoir 的静音路径可以不读位,仍须拒绝超过窗口的总预算。宽松模式与
+// side info 非法同样处理:丢弃这一帧,后面的帧照常解码。
 func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
 	for _, missing := range []int{0, 511} {
 		data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
@@ -48,13 +56,21 @@ func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
 		if d.Frames() != 0 || d.DecodedFrames() != 0 {
 			t.Fatalf("missing=%d: accepted impossible main data", missing)
 		}
+		d, _, err = decodeMode(t, bytes.NewReader(data))
+		if err != nil || d.Frames() != 1152 {
+			t.Fatalf("missing=%d lenient: delivered %d frames, err=%v; want 1152 and no error", missing, d.Frames(), err)
+		}
+		rep := d.Report()
+		if f := rep.First; rep.DroppedFrames != 1 || f == nil || f.Kind != IssueCorrupt || f.Frame != 0 {
+			t.Fatalf("missing=%d lenient: report %+v, first %+v; want frame 0 dropped as corrupt", missing, rep, f)
+		}
 	}
 }
 
-// drain 解码到流结束并返回解码器;io.EOF 视为正常结束,其他错误原样返回。
+// drain 以严格模式解码到流结束并返回解码器;io.EOF 视为正常结束,其他错误原样返回。
 func drain(t *testing.T, r io.Reader) (*Decoder, error) {
 	t.Helper()
-	d, err := NewDecoder(context.Background(), r)
+	d, err := NewDecoder(context.Background(), r, Strict())
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +135,8 @@ func TestMidStreamLayerChangeUnsupported(t *testing.T) {
 	data = append(data, repeatFrames(mkHeader(3, 2, 1, 10, 0, 0, 0, 0, 0), 626, 3)...)
 	d, err := drain(t, bytes.NewReader(data))
 	var u *UnsupportedError
-	if !errors.As(err, &u) || !strings.Contains(u.Feature, "Layer II") {
-		t.Fatalf("err=%v, want UnsupportedError mentioning Layer II", err)
+	if !errors.As(err, &u) || u.Feature != "MPEG Layer II" {
+		t.Fatalf("err=%v, want UnsupportedError %q", err, "MPEG Layer II")
 	}
 	if d.Frames() != 3*1152 {
 		t.Fatalf("Frames()=%d, want %d (3 个 Layer III 帧)", d.Frames(), 3*1152)
@@ -145,8 +161,8 @@ func TestMidStreamFormatChangeUnsupported(t *testing.T) {
 			data = append(data, repeatFrames(tc.h, tc.size, 3)...)
 			d, err := drain(t, bytes.NewReader(data))
 			var u *UnsupportedError
-			if !errors.As(err, &u) || !strings.Contains(u.Feature, "format change") {
-				t.Fatalf("err=%v, want UnsupportedError mentioning format change", err)
+			if !errors.As(err, &u) || u.Feature != "mid-stream format change" {
+				t.Fatalf("err=%v, want UnsupportedError %q", err, "mid-stream format change")
 			}
 			if d.Frames() != 3*1152 {
 				t.Fatalf("Frames()=%d, want %d (切换前的 3 帧)", d.Frames(), 3*1152)

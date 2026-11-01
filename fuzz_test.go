@@ -16,22 +16,31 @@ import (
 
 // fuzz 目标分工:FuzzParseTags 覆盖标签与帧头解析;FuzzFrameData 在一组合法
 // 帧头下变异 side information 与 main data(帧数据处理);FuzzStream 覆盖任意
-// 字节流的完整流式解码。
+// 字节流的完整流式解码。后两者都在严格与宽松两种模式下运行。
 
 // fuzzResult 是一次完整解码的摘要:PCM 只保留 FNV-1a 哈希,不留存输出,使单个
-// 输入的内存只反映解码器本身。
+// 输入的内存只反映解码器本身。报告的字段取自终止时的 Report;解码器没有建成时
+// 它们保持零值。
 type fuzzResult struct {
-	class                    string // errClass 的终止类别
-	frames, decoded, samples int64
-	trimmed                  bool
-	nchans                   int
-	hash                     uint64
+	class                     string // errClass 的终止类别
+	frames, decoded, samples  int64
+	trimmed                   bool
+	nchans                    int
+	hash                      uint64
+	clean                     bool   // 报告没有异常
+	midstream                 int64  // 流中间跳过的标签个数
+	trailing                  TagSet // 尾部标签
+	first                     Issue  // 第一处异常;没有时为零值
+	dropped, skipped, resyncs int64  // 宽松模式丢弃的帧、跳过的字节与重新同步的次数
+	concealed, crcErrors      int64  // 宽松模式容错的 granule 数与 CRC 不符的帧数
+	truncated                 bool   // 流在帧、帧头或标签中间结束
+	emphasis                  int    // 首帧的 emphasis 字段
 }
 
-// fuzzDecode 以 bufFrames 个采样帧的输出缓冲完整解码 r,并检查任何输入都必须
-// 成立的不变量:错误归入规定类别(无音频、不支持、截断、损坏、资源限制)、
+// fuzzDecode 以 bufFrames 个采样帧的输出缓冲和 opts 选项完整解码 r,并检查任何输入
+// 都必须成立的不变量:错误归入规定类别(无音频、不支持、截断、损坏、资源限制)、
 // 输出无 NaN/Inf、不出现无进展的 (0, nil)、交付样本数与计数自洽。
-func fuzzDecode(t *testing.T, r io.Reader, bufFrames int) fuzzResult {
+func fuzzDecode(t *testing.T, r io.Reader, bufFrames int, opts ...Option) fuzzResult {
 	t.Helper()
 	ctx := context.Background()
 	res := fuzzResult{hash: 14695981039346656037}
@@ -43,7 +52,7 @@ func fuzzDecode(t *testing.T, r io.Reader, bufFrames int) fuzzResult {
 		}
 		return res
 	}
-	d, err := NewDecoder(ctx, r)
+	d, err := NewDecoder(ctx, r, opts...)
 	if err != nil {
 		return finish(err)
 	}
@@ -67,6 +76,14 @@ func fuzzDecode(t *testing.T, r io.Reader, bufFrames int) fuzzResult {
 				err = nil
 			}
 			res.frames, res.decoded, res.trimmed = d.Frames(), d.DecodedFrames(), d.Trimmed()
+			rep := d.Report()
+			res.clean, res.midstream, res.trailing = rep.Clean(), rep.MidstreamTags, rep.TrailingTags
+			res.dropped, res.skipped, res.resyncs = rep.DroppedFrames, rep.SkippedBytes, rep.Resyncs
+			res.concealed, res.crcErrors = rep.ConcealedGranules, rep.CRCErrors
+			res.truncated, res.emphasis = rep.Truncated, rep.Emphasis
+			if rep.First != nil {
+				res.first = *rep.First
+			}
 			if res.samples != res.frames*int64(res.nchans) || res.frames > res.decoded {
 				t.Fatalf("delivered %d samples, Frames()=%d × %d channels, DecodedFrames()=%d",
 					res.samples, res.frames, res.nchans, res.decoded)
@@ -207,9 +224,10 @@ var fuzzFrameHeaders = [][4]byte{
 
 // buildFrames 用 sel 选定的帧头把 body 切成至多 4 帧(不足补 0),有 CRC 时按
 // 帧头第 16–31 位与 side information 写入正确的 CRC,使变异越过 CRC 校验进入
-// 解码核心。
+// 解码核心;sel 的最高位置位时不写 CRC(留零),使宽松模式的 CRC 不符容错可达。
 func buildFrames(sel byte, body []byte) []byte {
 	hb := fuzzFrameHeaders[int(sel)%len(fuzzFrameHeaders)]
+	badCRC := sel&0x80 != 0
 	h, err := parseFrameHeader(hb)
 	if err != nil {
 		panic(err)
@@ -224,7 +242,7 @@ func buildFrames(sel byte, body []byte) []byte {
 		}
 		n := copy(frame[off:], body)
 		body = body[n:]
-		if h.hasCRC {
+		if h.hasCRC && !badCRC {
 			c := crc16Update(crc16(frame[2:4]), frame[6:6+h.sideInfoSize])
 			frame[4], frame[5] = byte(c>>8), byte(c)
 		}
@@ -240,9 +258,12 @@ func FuzzFrameData(f *testing.F) {
 		f.Add(byte(sel), []byte{})
 		f.Add(byte(sel), pluck[len(pluck)/2:])
 		f.Add(byte(sel), sine[len(sine)/2:])
+		if h, err := parseFrameHeader(fuzzFrameHeaders[sel]); err == nil && h.hasCRC {
+			f.Add(byte(sel)|0x80, pluck[len(pluck)/2:])
+		}
 	}
 	f.Fuzz(func(t *testing.T, sel byte, body []byte) {
-		withLimits(t, func() { fuzzDecode(t, bytes.NewReader(buildFrames(sel, body)), 4096) })
+		withLimits(t, func() { streamOnce(t, buildFrames(sel, body)) })
 	})
 }
 
@@ -263,16 +284,93 @@ func FuzzStream(f *testing.F) {
 		f.Add(fuzzSeedFile(f, name, 3<<10))
 	}
 	f.Add(append(fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20), id3v1Tag()...))
+	f.Add(cat(fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20),
+		apeTag(false, [2]string{"Title", "gl3d"}), lyrics3v2("la"), tagPlus(), id3v1Tag()))
+	// 流中间的标签与标签帧:严格模式报错,宽松模式跳过
+	tone := fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20)
+	f.Add(cat(tone, id3v2Tag(100), tone))
+	f.Add(cat(tone, tone))
 	f.Add(repeatFrames(mkHeader(3, 2, 1, 10, 0, 0, 0, 0, 0), 626, 3)) // Layer II
 	f.Add(vbriStream(2, 2))
+	for _, seed := range resyncSeeds(f) {
+		f.Add(seed)
+	}
 	f.Fuzz(func(t *testing.T, data []byte) { withLimits(t, func() { streamOnce(t, data) }) })
 }
 
+// resyncSeeds 返回宽松模式要跳过数据、重新同步的种子:帧之间与流尾的垃圾、中间丢了字节
+// 的帧、每帧之后夹一个字节、emphasis 帧、开头无效或不完整的 ID3v2、解析不了的 Xing 首帧、
+// 标签串中读不下去的标签、只有 footer 的 APEv2。各不超过 8 KB。
+func resyncSeeds(f *testing.F) [][]byte {
+	f.Helper()
+	shine := fuzzSeedFile(f, "sine440-stereo-44k1-cbr192-shine.mp3", 8<<10)
+	var starts []int
+	for p := 0; p+4 <= len(shine); {
+		h, err := parseFrameHeader([4]byte(shine[p:]))
+		if err != nil || p+h.frameSize > len(shine) {
+			break
+		}
+		starts = append(starts, p)
+		p += h.frameSize
+	}
+	base := shine[:starts[8]] // 8 帧
+	frame := func(k int) []byte { return base[starts[k]:starts[k+1]] }
+	emphasis := func(from int) []byte {
+		out := bytes.Clone(base)
+		for _, s := range starts[from:8] {
+			out[s+3] |= 1
+		}
+		return out
+	}
+	badInfo := make([]byte, 104) // 32 kbps 的 Info 帧,flags 声明的字段装不下
+	h := mkHeader(3, 1, 1, 1, 0, 0, 0, 0, 0)
+	copy(badInfo, h[:])
+	copy(badInfo[36:], "Info")
+	badInfo[43] = 0xF
+	slack := bytes.Clone(base[:starts[2]])
+	for k := 2; k < 6; k++ {
+		slack = append(append(slack, frame(k)...), 0)
+	}
+	slack = append(slack, base[starts[6]:]...)
+	seeds := [][]byte{
+		cat(base[:starts[4]], noSync(300), base[starts[4]:]),
+		cat(base[:starts[3]+300], base[starts[3]+350:]),
+		cat(base, make([]byte, 256)),
+		emphasis(2),
+		emphasis(0),
+		slack,
+		cat([]byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0x80}, base),
+		id3v2Tag(200)[:100],
+		[]byte("ID3\x04\x00\x00\x00\x00"),
+		cat(badInfo, base),
+		cat(base[:starts[3]], id3v1Tag(), []byte("LYRICSBEGINla la"), base[starts[3]:]),
+		cat(base[:starts[4]], noSync(100), apeTag(false, [2]string{"Title", "gl3d"}), base[starts[4]:]),
+	}
+	for i, seed := range seeds {
+		if len(seed) > 8<<10 {
+			f.Fatalf("resync seed %d is %d bytes, over 8 KB", i, len(seed))
+		}
+	}
+	return seeds
+}
+
 func streamOnce(t *testing.T, data []byte) {
-	whole := fuzzDecode(t, bytes.NewReader(data), 4096)
-	// 输入分块方式与输出缓冲大小不得改变解码结果
-	r := &chunkReader{data: data, rng: rand.New(rand.NewSource(int64(len(data)))), max: 1 + len(data)%97}
-	if chunked := fuzzDecode(t, r, 1+len(data)%13); chunked != whole {
-		t.Fatalf("chunked decode %+v differs from whole decode %+v", chunked, whole)
+	var results [2]fuzzResult
+	for i, opts := range [][]Option{{Strict()}, {lenient()}} {
+		whole := fuzzDecode(t, bytes.NewReader(data), 4096, opts...)
+		// 输入分块方式与输出缓冲大小不得改变解码结果与报告
+		r := &chunkReader{data: data, rng: rand.New(rand.NewSource(int64(len(data)))), max: 1 + len(data)%97}
+		if chunked := fuzzDecode(t, r, 1+len(data)%13, opts...); chunked != whole {
+			t.Fatalf("mode %d: chunked decode %+v differs from whole decode %+v", i, chunked, whole)
+		}
+		results[i] = whole
+	}
+	// 宽松模式不以格式错误结束:截断与损坏都在报告里
+	if lax := results[1]; lax.class == "truncated" || lax.class == "corrupt" {
+		t.Fatalf("lenient decode ended with %s: %+v", lax.class, lax)
+	}
+	// 模式等价:严格模式成功当且仅当宽松模式的报告是干净的,此时两者的输出、计数与报告相同
+	if strict, lax := results[0], results[1]; (strict.class == "ok" || lax.clean) && strict != lax {
+		t.Fatalf("strict %+v and lenient %+v disagree", strict, lax)
 	}
 }

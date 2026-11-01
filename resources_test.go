@@ -42,6 +42,42 @@ func liveHeap() int64 {
 	return int64(ms.HeapAlloc)
 }
 
+// 稳态解码不分配:解码器建好、PCM 队列长到稳定容量之后,逐帧解码与交付不产生堆
+// 分配,长流的分配量与时长无关。
+func TestSteadyStateDecodingDoesNotAllocate(t *testing.T) {
+	emphasis, _ := shineWithEmphasis(t, 0, -1)
+	for _, tc := range []struct {
+		name string
+		data []byte
+		opts []Option
+	}{
+		{"strict", readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3"), []Option{Strict()}},
+		{"default", readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3"), nil},
+		// 宽松模式下每个 emphasis 非零的帧都要过一遍异常处理,稳态下也不能分配
+		{"lenient with emphasis on every frame", emphasis, []Option{lenient()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			d, err := NewDecoder(ctx, newLoopReader(tc.data, 100), tc.opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			buf := make([]float64, 1152*d.Channels())
+			read := func() {
+				if _, err := d.ReadPCM(ctx, buf); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 20 {
+				read()
+			}
+			if allocs := testing.AllocsPerRun(200, read); allocs != 0 {
+				t.Fatalf("%v allocations per ReadPCM in steady state, want 0", allocs)
+			}
+		})
+	}
+}
+
 // 内存约束:扣除 Go 运行时、输入语料与调用方缓冲后,单实例峰值存活堆
 // ≤ 4 MiB;同格式 5 分钟与 60 分钟流的存活堆增量 ≤ 1 MiB。流由无标签的
 // shine 样例(191 帧,约 5 s)首尾相接而成;该样例首帧不引用 reservoir,
@@ -57,7 +93,7 @@ func TestDecoderMemoryBounded(t *testing.T) {
 	ctx := context.Background()
 	base := liveHeap() // 输入语料与调用方缓冲已在基线之内
 
-	d, err := NewDecoder(ctx, r)
+	d, err := NewDecoder(ctx, r, Strict())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +141,7 @@ func TestTagSkipAllocationBounded(t *testing.T) {
 	construct := func(data []byte) uint64 {
 		r := bytes.NewReader(data)
 		before := heapAllocated()
-		d, err := NewDecoder(context.Background(), r)
+		d, err := NewDecoder(context.Background(), r, Strict())
 		after := heapAllocated()
 		if err != nil {
 			t.Fatal(err)
@@ -120,10 +156,74 @@ func TestTagSkipAllocationBounded(t *testing.T) {
 	}
 }
 
-// decodeSummary 在任意 goroutine 中完整解码,出错以返回值报告(不调用 t.Fatal)。
-func decodeSummary(data []byte, bufFrames int) (decodeResult, error) {
+// 重新同步:扫过一长段像帧同步、帧头或标签标识的垃圾,检查候选的判断不产生与垃圾长度成
+// 正比的堆分配;结果仍然正确。输出缓冲复用,不累积 PCM。
+func TestResyncAllocationBounded(t *testing.T) {
+	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
+	_, want := decodeAll(t, bytes.NewReader(cat(shine, shine)))
+	for _, tc := range []struct {
+		name    string
+		pattern []byte
+		bound   uint64 // 扫过 1 MiB 垃圾允许的堆分配总量
+		// 垃圾整段都被跳过且只重新同步一次;否则垃圾里的标签标识会被识别、失败,逐个计入
+		// 报告,这时只核对解出的帧数
+		skipsAll bool
+	}{
+		{"sync bytes", []byte{0xFF}, 2 << 20, true},
+		// 同格式的有效帧头成簇出现,帧长处及其后的松弛范围内却没有帧头:每个候选还要检查
+		// 这一段字节。帧头簇的间隔大于帧长加 resyncSlack,否则垃圾会被当作帧交出
+		{"valid headers", cat(bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 8), make([]byte, 1024-32)), 2 << 20, true},
+		// 除了保留的 emphasis,其余都像有效的帧头
+		{"reserved emphasis", []byte{0xFF, 0xFB, 0x90, 0x02}, 2 << 20, true},
+		// 头无效的 ID3 标识:每个都要判断头是否有效,判断不分配
+		{"ID3 with a size byte over 0x7F", []byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0x80}, 2 << 20, true},
+		// 每个标识都被识别、读不下去:每个标识构造一个错误(LYRICSBEGIN 每次 24 B,约每
+		// 输入字节 2.2 B),分配与标识的个数成正比,压不到 2 MiB 以下,所以这两行各有上限
+		{"LYRICSBEGIN without an end", []byte("LYRICSBEGIN"), 3 << 20, false},
+		{"TAG", []byte("TAG"), 1 << 20, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// 垃圾以零字节开头:紧跟在帧后的完整帧头会被当作一个未经确认的帧交出,而不是
+			// 由重新同步扫过;以零字节结尾:最后一个标识不会越过垃圾吃掉其后的帧
+			junk := cat([]byte{0}, bytes.Repeat(tc.pattern, 1<<20/len(tc.pattern)), make([]byte, 256))
+			data := cat(shine, junk, shine)
+			ctx := context.Background()
+			buf := make([]float64, 4096)
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			d, err := NewDecoder(ctx, bytes.NewReader(data), lenient())
+			if err != nil {
+				t.Fatal(err)
+			}
+			samples := 0
+			for {
+				n, err := d.ReadPCM(ctx, buf)
+				samples += n * d.Channels()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			runtime.ReadMemStats(&after)
+			allocated := after.TotalAlloc - before.TotalAlloc
+			t.Logf("scanning %d B of junk allocated %d B", len(junk), allocated)
+			if allocated >= tc.bound {
+				t.Fatalf("scanning %d B of junk allocated %d B, want less than %d B", len(junk), allocated, tc.bound)
+			}
+			r := d.Report()
+			if samples != len(want) || tc.skipsAll && (r.SkippedBytes != int64(len(junk)) || r.Resyncs != 1) {
+				t.Fatalf("%d samples (want %d), report %+v", samples, len(want), r)
+			}
+		})
+	}
+}
+
+// decodeSummary 以 opts 选项在任意 goroutine 中完整解码,出错以返回值报告(不调用 t.Fatal)。
+func decodeSummary(data []byte, bufFrames int, opts ...Option) (decodeResult, error) {
 	ctx := context.Background()
-	d, err := NewDecoder(ctx, bytes.NewReader(data))
+	d, err := NewDecoder(ctx, bytes.NewReader(data), opts...)
 	if err != nil {
 		return decodeResult{}, err
 	}
@@ -150,7 +250,7 @@ func decodeSummary(data []byte, bufFrames int) (decodeResult, error) {
 // 解码器不留下 goroutine。数据竞争由 go test -race 检查。
 func TestConcurrentDecodersMatchSerial(t *testing.T) {
 	files := []string{
-		"sine440-stereo-44k1-cbr192.mp3",   // MPEG-1 立体声,gapless 尾部缓冲
+		"sine440-stereo-44k1-cbr192.mp3",   // MPEG-1 立体声,gapless 裁剪
 		"sine880-mono-11k025-cbr32.mp3",    // MPEG-2.5 单声道
 		"pluck-stereo-48k-cbr128-lame.mp3", // 短块与表 0
 		"sine440-stereo-44k1-cbr192-shine.mp3",
@@ -159,7 +259,7 @@ func TestConcurrentDecodersMatchSerial(t *testing.T) {
 	serial := make([]decodeResult, len(files))
 	for i, f := range files {
 		data[i] = readCorpus(t, f)
-		res, err := decodeSummary(data[i], 4096)
+		res, err := decodeSummary(data[i], 4096, Strict())
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
@@ -174,7 +274,7 @@ func TestConcurrentDecodersMatchSerial(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				results[i], errs[i] = decodeSummary(data[i], 1+i*97+round*31) // 各实例用不同的输出缓冲
+				results[i], errs[i] = decodeSummary(data[i], 1+i*97+round*31, Strict()) // 各实例用不同的输出缓冲
 			}()
 		}
 		wg.Wait()

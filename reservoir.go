@@ -49,3 +49,6 @@ func (r *reservoir) advance(frameMain []byte) {
 	copy(r.buf, r.buf[len(r.buf)-keep:])
 	r.buf = append(r.buf[:keep], frameMain...)
 }
+
+// reset 丢弃保留的历史字节:其后的帧按码流从中途开始处理。
+func (r *reservoir) reset() { r.buf = r.buf[:0] }

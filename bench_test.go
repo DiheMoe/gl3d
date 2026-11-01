@@ -27,7 +27,7 @@ func BenchmarkDecode(b *testing.B) {
 			var seconds float64
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				d, err := NewDecoder(context.Background(), bytes.NewReader(data))
+				d, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
 				if err != nil {
 					b.Fatal(err)
 				}

@@ -267,7 +267,8 @@ func TestMidsideStereo(t *testing.T) {
 
 // big_values 表 0 不读取任何位。即使 576 条谱线都由表 0 给出,声明的
 // part2_3_length 也不能越过物理窗口;scalefactor/big_values 跨逻辑界限
-// 仍然是损坏,不能与允许丢弃的 count1 stuffing 混为一谈。
+// 仍然是损坏,不能与允许丢弃的 count1 stuffing 混为一谈。出错后频谱置零、读位置
+// 停在 granule 结尾,供宽松模式容错后接着解码。
 func TestDecodeSpectraEnforcesBitBudgets(t *testing.T) {
 	h, _ := parseFrameHeader(mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0))
 	bm := bandMapFor(MPEG1, 0, shapeLong)
@@ -286,10 +287,19 @@ func TestDecodeSpectraEnforcesBitBudgets(t *testing.T) {
 			si.gr[0][0] = tc.gi
 			br := &bitReader{data: tc.data}
 			var gs granuleSpectrum
+			for i := range gs.xr {
+				gs.xr[i] = 1
+			}
 			err := decodeSpectra(&h, &si, 0, 0, br, bm, shapeLong, nil, false, &gs)
 			var corrupt *CorruptError
 			if !errors.As(err, &corrupt) {
 				t.Fatalf("got %v, want CorruptError", err)
+			}
+			if br.pos != tc.gi.part2_3Length {
+				t.Fatalf("read position %d, want the granule end %d", br.pos, tc.gi.part2_3Length)
+			}
+			if i := slices.IndexFunc(gs.xr[:], func(v float64) bool { return v != 0 }); i >= 0 {
+				t.Fatalf("line %d = %g after the error, want a zeroed spectrum", i, gs.xr[i])
 			}
 		})
 	}
@@ -429,6 +439,63 @@ func TestLSFIntensityDoesNotApplyNormalPreflag(t *testing.T) {
 		intensity := decodePCM(t, lsfPreflagStream(t, versionBits, true))
 		if !slices.Equal(intensity, plain) {
 			t.Fatalf("MPEG version bits %d: intensity compress=502 changed the non-intensity frequency band's gain", versionBits)
+		}
+	}
+}
+
+// 混合块的长块区与长块表的前 nLong 带相同,其上与纯短块从第 3 带起的布局相同。
+func TestMixedBandMaps(t *testing.T) {
+	for v := MPEG1; v <= MPEG25; v++ {
+		nLong := 8
+		if v != MPEG1 {
+			nLong = 6
+		}
+		for sr := 0; sr < 3; sr++ {
+			long, short, mixed := bandMapFor(v, sr, shapeLong), bandMapFor(v, sr, shapeShort), bandMapFor(v, sr, shapeMixed)
+			if !slices.Equal(mixed.sfbStart[:nLong+1], long.sfbStart[:nLong+1]) {
+				t.Errorf("v%d sr%d: long part %v, long map %v", v, sr, mixed.sfbStart[:nLong+1], long.sfbStart[:nLong+1])
+			}
+			if !slices.Equal(mixed.sfbStart[nLong:], short.sfbStart[9:]) {
+				t.Errorf("v%d sr%d: short part %v, short map from band 3 %v", v, sr, mixed.sfbStart[nLong:], short.sfbStart[9:])
+			}
+		}
+	}
+	bm := bandMapFor(MPEG25, 2, shapeMixed) // 8000 Hz
+	if got := bm.shortBands[0].posA; got != 72 {
+		t.Fatalf("8 kHz mixed short part starts at line %d, want 72", got)
+	}
+	if want := []int{0, 12, 24, 36, 48, 60, 72, 84, 96}; !slices.Equal(bm.sfbStart[:9], want) {
+		t.Fatalf("8 kHz mixed band starts %v, want %v", bm.sfbStart[:9], want)
+	}
+}
+
+func TestRegionBoundsSwitched(t *testing.T) {
+	for _, tc := range []struct {
+		v         Version
+		sr        int
+		blockType int
+		mixed     bool
+		want      int
+	}{
+		{MPEG25, 2, 2, true, 72},  // 8000 Hz
+		{MPEG25, 0, 2, true, 36},  // 11025 Hz
+		{MPEG25, 1, 2, true, 36},  // 12000 Hz
+		{MPEG2, 0, 2, true, 36},   // 22050 Hz
+		{MPEG2, 1, 2, true, 36},   // 24000 Hz
+		{MPEG2, 2, 2, true, 36},   // 16000 Hz
+		{MPEG1, 0, 2, true, 36},   // 44100 Hz
+		{MPEG25, 2, 2, false, 72}, // 纯短块
+		{MPEG2, 0, 2, false, 36},
+		{MPEG25, 2, 1, true, 108}, // 起始块按长块排列
+		{MPEG2, 0, 3, true, 54},
+	} {
+		gi := granuleInfo{windowSwitching: true, blockType: tc.blockType, mixedBlock: tc.mixed, regionCount: [2]int{7, 255}}
+		if tc.blockType == 2 && !tc.mixed {
+			gi.regionCount = [2]int{8, 255}
+		}
+		rb := regionBounds(&gi, bandMapFor(tc.v, tc.sr, gi.shape()))
+		if rb[1] != tc.want || rb[2] != 576 {
+			t.Errorf("v%d sr%d type %d mixed %v: bounds %v, want region0 end %d and region1 to 576", tc.v, tc.sr, tc.blockType, tc.mixed, rb, tc.want)
 		}
 	}
 }

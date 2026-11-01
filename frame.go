@@ -14,77 +14,84 @@ var ErrSmallBuffer = errors.New("gl3d: output buffer smaller than one sample fra
 // gapless 裁剪的标签值须计入它:头裁 enc_delay+529,尾裁 enc_padding−529。
 const decoderDelay = 529
 
-// decodeFrame 解码一个音频帧,PCM 追加到内部队列;流结束时调用 finish 做
-// 尾部校验与 gapless 尾裁。
+// decodeFrame 取分帧层交出的下一个音频帧并解码;音频正常结束时调用 finish 做流结束
+// 时的校验。
 func (d *Decoder) decodeFrame(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	// 帧长以本帧帧头为准(VBR 逐帧可变),先读 4 字节帧头
-	if err := d.s.fill(ctx, 4); err != nil {
-		return err
-	}
-	if len(d.s.buf) == 0 {
+	af, err := d.fr.next(ctx)
+	if err == errEndOfAudio {
 		return d.finish()
 	}
-	if isID3v1Start(d.s.buf) {
-		return d.skipID3v1(ctx)
-	}
-	if len(d.s.buf) < 4 {
-		return d.trailingBytesErr(d.s.buf)
-	}
-	fh, err := parseFrameHeader([4]byte(d.s.buf[:4]))
 	if err != nil {
-		return wrapFrameErr(err, d.framesDecoded)
+		return err
 	}
-	// 版本、采样率、声道数中途改变属范围外格式;码率与 padding 可逐帧变化
-	if fh.version != d.header.version || fh.sampleRate != d.header.sampleRate || fh.channels() != d.header.channels() {
-		return &UnsupportedError{Feature: "mid-stream format change"}
+	if af.gap {
+		d.rsv.reset()
 	}
-	// 同步只在初始化时确认。当前完整帧不依赖下一帧是否已经到达或合法;
-	// 后续头部/尾部的错误在下一轮报告,先交付已经收到的完整音频。
-	readErr := d.s.fill(ctx, fh.frameSize)
-	if len(d.s.buf) < fh.frameSize {
-		if readErr != nil {
-			return readErr
+	if err := d.decodeAudio(af.data, af.header, !d.fr.strict && !af.unconfirmed); err != nil {
+		if af.unconfirmed {
+			// 源出错时未经确认交出的首帧解码失败,多半是伪同步:报告真正的原因
+			return d.fr.s.err
 		}
-		return &TruncatedError{Offset: d.s.tell(), What: "frame body"}
+		return err
 	}
+	return nil
+}
 
-	frame := d.s.buf[:fh.frameSize]
+// decodeAudio 解码一个完整音频帧,PCM 追加到内部队列。conceal 为真时(宽松模式下
+// 确认过的帧)帧内损坏记入报告后容错:CRC 不符照常解码;side info 非法或所需位数超出
+// main data 时丢弃这一帧,它的 main data 仍并入 bit reservoir,供后续帧回指;
+// scalefactor 或谱数据出错的 granule 按 decodeSpectra 留下的频谱继续。
+func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error {
+	rep := &d.fr.rep
 	off := 4
 	if fh.hasCRC {
 		// CRC 覆盖帧头第 16–31 位与整个 side information
 		stored := binary.BigEndian.Uint16(frame[4:6])
 		if crc16Update(crc16(frame[2:4]), frame[6:6+fh.sideInfoSize]) != stored {
-			return &CorruptError{Frame: d.framesDecoded, Detail: "CRC mismatch"}
+			err := &CorruptError{Frame: d.framesDecoded, Detail: "CRC mismatch"}
+			if !conceal {
+				return err
+			}
+			d.note(err)
+			rep.CRCErrors++
 		}
 		off = 6
 	}
 	si := &d.si
-	if err := parseSideInfo(&fh, frame[off:off+fh.sideInfoSize], si); err != nil {
-		return wrapFrameErr(err, d.framesDecoded)
-	}
 	mainData := frame[off+fh.sideInfoSize : fh.frameSize]
-	window, missing := d.rsv.assemble(si.mainDataBegin, mainData)
-	br := &bitReader{data: window}
-
 	ngr := 2
 	if fh.version.lsf() {
 		ngr = 1
 	}
 	nch := fh.channels()
-	// 表 0 与缺失历史的静音分支可能不读任何位,因此不能只靠读位操作
-	// 检测物理截断。先验证整帧声明的预算,包括虚拟缺失历史的占位前缀。
-	bitsNeeded := 0
-	for gr := 0; gr < ngr; gr++ {
-		for ch := 0; ch < nch; ch++ {
-			bitsNeeded += si.gr[gr][ch].part2_3Length
+	err := parseSideInfo(&fh, frame[off:off+fh.sideInfoSize], si)
+	if err == nil {
+		// 表 0 与缺失历史的静音 granule 不读位,解码时发现不了声明的位数超出实际
+		// 数据,先按整帧核对。assemble 给出的视图恰为 main_data_begin 字节(缺失的
+		// 历史按占位计)加本帧自带的 main 字节
+		bits := 0
+		for gr := 0; gr < ngr; gr++ {
+			for ch := 0; ch < nch; ch++ {
+				bits += si.gr[gr][ch].part2_3Length
+			}
+		}
+		if bits > 8*(si.mainDataBegin+len(mainData)) {
+			err = &CorruptError{Frame: -1, Detail: "part2_3_length exceeds available main data"}
 		}
 	}
-	if bitsNeeded > len(window)*8 {
-		return &CorruptError{Frame: d.framesDecoded, Detail: "part2_3_length exceeds available main data"}
+	if err != nil {
+		err = wrapFrameErr(err, d.framesDecoded)
+		if !conceal {
+			return err
+		}
+		d.note(err)
+		rep.DroppedFrames++
+		d.rsv.advance(mainData)
+		return nil
 	}
+	window, missing := d.rsv.assemble(si.mainDataBegin, mainData)
+	br := &bitReader{data: window}
+
 	n := fh.samplesPerFrame * nch
 	out := d.pcmReserve(n)
 	silentGr0 := false
@@ -110,7 +117,12 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 			}
 			intensityR := fh.channelMode == modeJointStereo && fh.modeExt&1 != 0 && ch == 1
 			if err := decodeSpectra(&fh, si, gr, ch, br, bm[ch], shape, d.prevScf[ch][:], intensityR, gs); err != nil {
-				return wrapFrameErr(err, d.framesDecoded)
+				err = wrapFrameErr(err, d.framesDecoded)
+				if !conceal {
+					return err
+				}
+				d.note(err)
+				rep.ConcealedGranules++
 			}
 			if gr == 0 && !fh.version.lsf() {
 				d.prevScf[ch] = gs.scf
@@ -131,35 +143,48 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 			if !gi.windowSwitching {
 				bt = 0
 			}
-			// mixed_block_flag 置位时最低子带仍用长窗,起始、短、结束块皆然
+			// mixed_block_flag 置位时最低 2 个子带用长窗,起始、短、结束块与所有采样率皆然
 			nLongSub := 0
 			if gi.windowSwitching && gi.mixedBlock {
 				nLongSub = 2
-				if fh.version == MPEG25 && fh.srIdx == 2 {
-					nLongSub = 4 // MPEG-2.5 8 kHz 混合块;取值来自实现观察,未经标准文本核实
-				}
 			}
 			d.chState[ch].imdctBlock(&d.spec[ch].xr, bt, nLongSub, bm[ch], &d.td)
 			synthGranule(&d.synthSt[ch], &d.td, out[gr*576*nch+ch:], nch)
 		}
 	}
 	d.rsv.advance(mainData)
-	d.pcm = d.pcm[:len(d.pcm)+n] // 整帧解码成功才计入队列
-	d.s.drop(fh.frameSize)
+	d.commit(out, nch) // 整帧处理完才计入队列
 	d.framesDecoded++
 	d.pcmTotal += int64(fh.samplesPerFrame)
-	// gapless 头裁:标签帧之后的输出开头丢弃 enc_delay+decoderDelay 个采样帧
-	if d.startSkip > 0 {
-		skip := min(d.startSkip, (len(d.pcm)-d.pcmOff)/nch)
-		d.pcmOff += skip * nch
-		d.startSkip -= skip
-	}
 	return nil
 }
 
+// commit 把刚解码的一帧计入 PCM 队列:out 是它的交错采样,解码序号从 pcmTotal 起;
+// 落在 gapless 裁剪区间内的采样帧丢弃。
+func (d *Decoder) commit(out []float64, nch int) {
+	pos := d.pcmTotal
+	// 尾裁区间在头裁区间之上,先删它不改变头裁区间内的下标
+	keep := cutFrames(out, pos, d.tailFrom, d.tailTo, nch)
+	keep = cutFrames(keep, pos, 0, d.headTrim, nch)
+	d.pcm = d.pcm[:len(d.pcm)+len(keep)]
+}
+
+// cutFrames 从交错采样 s(解码序号从 pos 起)中删去序号在 [from, to) 内的采样帧,
+// 其后的采样前移,返回余下的部分。
+func cutFrames(s []float64, pos, from, to int64, nch int) []float64 {
+	n := int64(len(s) / nch)
+	lo, hi := max(from-pos, 0), min(to-pos, n)
+	if lo >= hi {
+		return s
+	}
+	c := int64(nch)
+	copy(s[lo*c:], s[hi*c:])
+	return s[:(n-(hi-lo))*c]
+}
+
 // pcmReserve 确保 PCM 队列尾部有 n 个空位并返回该区间(尚未计入队列)。
-// 已交付样本只在空间不足时整体搬走,未交付样本至多为 gapless 尾部缓冲加
-// 一帧,队列容量因此有界。
+// 已交付样本只在空间不足时整体搬走;ReadPCM 只在队列交付完时解码,未交付样本
+// 至多一帧,队列容量因此有界。
 func (d *Decoder) pcmReserve(n int) []float64 {
 	if len(d.pcm)+n > cap(d.pcm) {
 		live := copy(d.pcm, d.pcm[d.pcmOff:])
@@ -173,54 +198,37 @@ func (d *Decoder) pcmReserve(n int) []float64 {
 	return d.pcm[len(d.pcm) : len(d.pcm)+n]
 }
 
-// trailingBytesErr 归类流末尾不足一个帧头(1–3 字节)的数据:以帧同步位
-// 开头视为被截断的帧头,否则为未知尾部数据。
-func (d *Decoder) trailingBytesErr(b []byte) error {
-	if b[0] == 0xFF && (len(b) < 2 || b[1]&0xE0 == 0xE0) {
-		return &TruncatedError{Offset: d.s.tell(), What: "frame header"}
-	}
-	return &CorruptError{Frame: d.framesDecoded, Detail: "unknown trailing data after frame"}
-}
-
-const id3v1Size = 128
-
-func isID3v1Start(b []byte) bool {
-	return len(b) >= 3 && string(b[:3]) == "TAG"
-}
-
-// skipID3v1 跳过流末尾的 ID3v1 标签:标签须恰好 128 字节且其后即流结束;
-// 不完整为截断,其后仍有数据为格式错误。
-func (d *Decoder) skipID3v1(ctx context.Context) error {
-	if err := d.s.fill(ctx, id3v1Size+1); err != nil {
-		return err
-	}
-	switch {
-	case len(d.s.buf) < id3v1Size:
-		return &TruncatedError{Offset: d.s.tell(), What: "ID3v1 tag"}
-	case len(d.s.buf) > id3v1Size:
-		return &CorruptError{Frame: d.framesDecoded, Detail: "unknown data after ID3v1 tag"}
-	}
-	d.s.drop(id3v1Size)
-	return d.finish()
-}
-
-// finish 在流结束时做尾部校验并应用 gapless 尾裁。
+// finish 在流结束时核对帧数声明与 gapless 填充。
 func (d *Decoder) finish() error {
-	if d.xing != nil && d.xing.frames != nil && d.framesDecoded != int64(*d.xing.frames) {
-		return &TruncatedError{Offset: d.s.tell(), What: "audio frame count vs Xing declaration"}
-	}
-	if d.vbri != nil && d.framesDecoded != int64(d.vbri.frames) {
-		return &TruncatedError{Offset: d.s.tell(), What: "audio frame count vs VBRI declaration"}
-	}
-	if d.trimming && d.endTrim > 0 {
-		nch := d.Channels()
-		trim := d.endTrim * nch
-		if trim > len(d.pcm)-d.pcmOff {
-			return &CorruptError{Frame: -1, Detail: "gapless padding exceeds decoded length"}
+	if n := d.declaredFrames(); n >= 0 && d.framesDecoded != n {
+		what := "audio frame count vs VBRI declaration"
+		if d.xing != nil {
+			what = "audio frame count vs Xing declaration"
 		}
-		d.pcm = d.pcm[:len(d.pcm)-trim]
+		if err := d.tolerate(&TruncatedError{Offset: d.fr.offset(), What: what}); err != nil {
+			return err
+		}
+	}
+	if r := &d.fr.rep; !d.fr.strict && d.framesDecoded == 0 && (r.DroppedFrames > 0 || r.SkippedBytes > 0 || r.Truncated) {
+		// 宽松模式丢掉了数据而一个帧也没有解出:没有可以交付的音频。没有帧被丢弃、跳过
+		// 或截断就什么也没丢,流里本来就没有音频帧(只有标签帧),照常结束
+		return ErrNoAudio
+	}
+	if d.badPadding {
+		if err := d.tolerate(&CorruptError{Frame: -1, Detail: "gapless padding exceeds decoded length"}); err != nil {
+			return err
+		}
 	}
 	d.finished = true
+	return nil
+}
+
+// tolerate 记下流结束时发现的异常:严格模式返回 err,宽松模式返回 nil 继续。
+func (d *Decoder) tolerate(err error) error {
+	d.note(err)
+	if d.fr.strict {
+		return err
+	}
 	return nil
 }
 
@@ -236,12 +244,7 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 		return 0, ErrSmallBuffer
 	}
 	for {
-		// 流未正常结束时扣留 gapless 尾裁余量,待 finish 裁决
-		hold := 0
-		if !d.finished {
-			hold = d.holdback
-		}
-		avail := (len(d.pcm)-d.pcmOff)/nch - hold
+		avail := (len(d.pcm) - d.pcmOff) / nch
 		if avail > 0 {
 			n := min(avail, len(buf)/nch)
 			copy(buf, d.pcm[d.pcmOff:d.pcmOff+n*nch])
@@ -255,11 +258,11 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 			}
 			return 0, io.EOF
 		}
-		// 解码出错:已缓冲样本照常交付,错误排空后返回;尾裁只适用于正常结束的流
+		// 解码出错:已缓冲样本照常交付,错误排空后返回
 		if err := d.decodeFrame(ctx); err != nil {
 			d.termErr = err
 			d.finished = true
-			d.holdback = 0
+			d.note(err)
 		}
 	}
 }
@@ -271,11 +274,31 @@ func (d *Decoder) DecodedFrames() int64 { return d.pcmTotal }
 func (d *Decoder) Frames() int64 { return d.delivered }
 
 // Trimmed 报告是否应用了 gapless 裁剪;为 false 时 Frames 代表解码输出
-// 长度,不代表编码前音频长度。
+// 长度,不代表编码前音频长度。尾裁需要帧数声明(Report().DeclaredFrames >= 0),
+// 只有头裁时 Frames 仍不是编码器的输入长度。
 func (d *Decoder) Trimmed() bool { return d.trimming }
+
+// Report 返回到目前为止的解码报告。
+func (d *Decoder) Report() Report {
+	r := d.fr.rep
+	r.DeclaredFrames, r.AudioFrames = d.declaredFrames(), d.framesDecoded
+	if r.First != nil {
+		first := *r.First
+		r.First = &first
+	}
+	return r
+}
+
+// note 把解码器发现的异常记入报告:帧号为此前已解码的音频帧数,偏移为正在解码的帧的
+// 起点;流结束时发现的异常偏移为流的结尾。错误自带的位置优先。
+func (d *Decoder) note(err error) { d.fr.rep.note(err, d.framesDecoded, d.fr.offset()) }
 
 // wrapFrameErr 给解码深处产生的 CorruptError 补上帧序号。
 func wrapFrameErr(err error, frame int64) error {
+	if c, ok := err.(*CorruptError); ok {
+		c.Frame = frame
+		return err
+	}
 	var c *CorruptError
 	if errors.As(err, &c) {
 		c.Frame = frame

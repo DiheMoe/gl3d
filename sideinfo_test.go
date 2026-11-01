@@ -1,7 +1,6 @@
 package gl3d
 
 import (
-	"errors"
 	"testing"
 )
 
@@ -192,30 +191,6 @@ func TestLSFPreflagModes(t *testing.T) {
 							t.Fatalf("version bits %d mode %d ext %d sfc %d channel %d: preflag=%d, want %d", versionBits, mode, ext, sfc, ch, got, want)
 						}
 					}
-				}
-			}
-		}
-	}
-}
-
-func TestMPEG25EightKHzMixedUnsupported(t *testing.T) {
-	for _, mode := range []int{0, 3} {
-		for sr := 0; sr < 3; sr++ {
-			for _, mixed := range []int{0, 1} {
-				h, _ := parseFrameHeader(mkHeader(0, 1, 1, 4, sr, 0, mode, 0, 0))
-				data := make([]byte, h.sideInfoSize)
-				start := 8 + h.channels()
-				setBits(data, start+12+9+8+9, 1, 1) // window_switching
-				setBits(data, start+12+9+8+9+1, 2, 2)
-				setBits(data, start+12+9+8+9+3, 1, mixed)
-				err := parseSideInfo(&h, data, &sideInfo{})
-				if sr == 2 && mixed == 1 {
-					var unsupported *UnsupportedError
-					if !errors.As(err, &unsupported) || unsupported.Feature != "MPEG-2.5 8 kHz mixed blocks" {
-						t.Fatalf("mode %d: got %v, want 8 kHz mixed block UnsupportedError", mode, err)
-					}
-				} else if err != nil {
-					t.Fatalf("mode %d sr %d mixed %d: %v", mode, sr, mixed, err)
 				}
 			}
 		}

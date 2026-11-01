@@ -142,11 +142,6 @@ func parseSideInfo(h *frameHeader, data []byte, si *sideInfo) error {
 			if gi.windowSwitching && gi.blockType == 0 {
 				return &CorruptError{Frame: -1, Detail: "block_type 0 with window_switching"}
 			}
-			if h.version == MPEG25 && h.srIdx == 2 && gi.windowSwitching && gi.blockType == 2 && gi.mixedBlock {
-				// 现有 8 kHz 混合块带表的长区与 IMDCT 长区不一致,重排会重复/
-				// 丢失谱线。在整个布局得到验证前明确拒绝,不能静默输出错误音频。
-				return &UnsupportedError{Feature: "MPEG-2.5 8 kHz mixed blocks"}
-			}
 		}
 	}
 	return nil

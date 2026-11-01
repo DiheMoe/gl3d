@@ -133,6 +133,7 @@ func pattern(n, step int) []int {
 	return v
 }
 
+// decodePCM 以严格模式解码 stream 并返回全部 PCM,任何错误都让用例失败。
 func decodePCM(t *testing.T, stream []byte) []float64 {
 	t.Helper()
 	res := decodeWith(t, bytes.NewReader(stream), 1152)

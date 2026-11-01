@@ -1,6 +1,7 @@
-// Command gl3ddec 用 gl3d 解码 MP3 文件,把交错的 float64 小端 PCM 写入 OUT,并以
-// JSON 输出格式与采样帧计数。PCM 布局与 refgen 写出的 FFmpeg 参考相同,供 pcmdiff
-// 比较。
+// Command gl3ddec 用 gl3d 解码 MP3 文件,解码模式是库的默认模式(宽松),
+// 把交错的 float64 小端 PCM 写入 OUT,并以 JSON 输出格式与采样帧计数。
+// clean 为假表示输入中有被容错的异常,详情在解码报告里。
+// PCM 布局与 refgen 写出的 FFmpeg 参考相同,供 pcmdiff 比较。
 //
 // 用法:gl3ddec INPUT.mp3 OUT.f64le
 package main
@@ -25,6 +26,7 @@ type summary struct {
 	Frames        int64  `json:"frames"`
 	DecodedFrames int64  `json:"decodedFrames"`
 	Trimmed       bool   `json:"trimmed"`
+	Clean         bool   `json:"clean"`
 }
 
 func run(in, out string) (*summary, error) {
@@ -70,6 +72,7 @@ func run(in, out string) (*summary, error) {
 		Frames:        d.Frames(),
 		DecodedFrames: d.DecodedFrames(),
 		Trimmed:       d.Trimmed(),
+		Clean:         d.Report().Clean(),
 	}, dst.Close()
 }
 

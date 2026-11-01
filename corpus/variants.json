@@ -1,0 +1,295 @@
+{
+  "version": 1,
+  "referenceTools": {
+    "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "mpg123": "mpg123 1.33.7",
+    "lengthCommands": {
+      "ffmpeg": "ffmpeg -v error -i INPUT -f f64le -",
+      "mpg123": "mpg123 -q -e f32 -s INPUT"
+    },
+    "lengthUnits": "采样帧数:ffmpeg 输出字节数 / 16,mpg123 输出字节数 / 8(f64 与 f32,双声道)"
+  },
+  "variants": [
+    {
+      "name": "a-id3v1",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-id3v1"}],
+      "sha256": "924891bfa83d4af2b3fd4ff8d65a72a1af5178d29ef6fb6013f8faaa6d04bdce",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-apev2",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-apev2"}],
+      "sha256": "e55343d247473dc597c2a219155401543a4597f9f65d8f8d09c91515a4b886a1",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-apev2-footer-id3v1",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-apev2-footer"}, {"op":"append-id3v1"}],
+      "sha256": "83d37878df320808a4dd0d21b3726f7d29f88d1b8e5533a7102bb78d5aa4de19",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-lyrics3v2-id3v1",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-lyrics3v2"}, {"op":"append-id3v1"}],
+      "sha256": "b09848d25b394081104d37fc20bfd2753c26bccea73d2ee644b3ac689920ba98",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-tagplus-id3v1",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-tagplus"}, {"op":"append-id3v1"}],
+      "sha256": "d21e683ceee86d63cfa5791b527af68fb1f72fd7787ad663cc1270fe7b318793",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-id3v2-footer",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-id3v2-footer"}],
+      "sha256": "1bc57371a3a63720eb7d7153a78500478ac4cf62a61a12810bedd2ffb095f0b3",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-zeros256",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-zeros","n":256}],
+      "sha256": "8a69392eaf9e3361b33cecd53fd3323b7247d26f6a44310850aad0f14ad24de7",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"corrupt","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-random1k",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"append-random","n":1024,"seed":1}],
+      "sha256": "2e323dd2017c1dc18d5e4c06655189f689dc3198b2a388c96c9082c5071776fb",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"corrupt","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-mid-id3v2",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"insert-id3v2","frame":96,"n":64}],
+      "sha256": "afd933da3932f0a883ae94b174d4c60f6e54d954e97cb4cc49b0d183381d060e",
+      "expect": {"ffmpeg":219348,"mpg123":220500,"strict":"corrupt","frames":220500,"pcm":"intact"},
+      "note": "流中间的标签不是音频,期望与完好文件相同;mpg123 输出 220500,长度与完好文件相同;FFmpeg 在标签处少输出一帧(219348)。"
+    },
+    {
+      "name": "a-mid-id3v1",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"insert-id3v1","frame":96}],
+      "sha256": "6b751f786d6cd0578d2fca4c371790d9fad1db48cb76ddbb04c68eb86121f9be",
+      "expect": {"ffmpeg":219348,"mpg123":220500,"strict":"corrupt","frames":220500,"pcm":"intact"},
+      "note": "流中间的标签不是音频,期望与完好文件相同;mpg123 输出 220500,与完好文件相同;FFmpeg 在标签处少输出一帧(219348)。"
+    },
+    {
+      "name": "a-cut-boundary",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"truncate","frame":116}],
+      "sha256": "a8b895c4bd84f47351f040127c35866d1900943d54288a9e028d3362a39cd945",
+      "expect": {"ffmpeg":132527,"mpg123":132527,"strict":"truncated","frames":132527,"pcm":"prefix"}
+    },
+    {
+      "name": "a-cut-leading",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"drop-frames","n":20}],
+      "sha256": "2db51569b2c2f38c8cc2dc4673bd3c08326fe6d189d04dca6f297d1b5e20dd02",
+      "expect": {"ffmpeg":198191,"mpg123":198191,"strict":"truncated","frames":198191,"pcm":"offset"}
+    },
+    {
+      "name": "a-extra",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"copy-frames","frame":96,"n":20}],
+      "sha256": "d92754fd9906b6d4d7e4a1e7ef68228e11e1979a04cbe02e7b4971cfdd5c9b8d",
+      "expect": {"ffmpeg":244271,"mpg123":243540,"strict":"truncated","frames":243540,"pcm":"extra"},
+      "note": "帧数多于声明:LAME 标签的尾部填充位于声明帧数的末端,按声明位置丢弃,与 mpg123 相同(243540);FFmpeg 在这里没有丢弃尾部填充(244271)。"
+    },
+    {
+      "name": "a-emphasis",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"emphasis-all"}],
+      "sha256": "db5d5fb7b389a115cf3fcf484acebb7d1c2ff3d09d9195583b19e3ad952c6510",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"unsupported","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "a-pad-after-id3v2",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "ops": [{"op":"pad-after-id3v2","n":2048}],
+      "sha256": "88cb3b4e812c2891f67c10f285b63939967f0fc695c40ad1a9ac6f138535cfab",
+      "expect": {"ffmpeg":222336,"mpg123":220500,"strict":"ok","frames":220500,"pcm":"intact"},
+      "note": "ID3v2 之后的零填充不是音频,其后的 Info 帧仍是标签帧,采用它的 gapless 信息,与 mpg123 相同(220500);FFmpeg 跳过了 Info 帧,但没有采用它的 gapless 信息,不做裁剪(193 × 1152 = 222336)。"
+    },
+    {
+      "name": "a-huge-id3v2",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 1,
+      "inTestOnly": true,
+      "ops": [{"op":"huge-id3v2","n":17825792}],
+      "sha256": "e658bd345b8febdb7dfc774de49b6ee55dabe4c99d4bcac32906bf1768d34fb7",
+      "expect": {"ffmpeg":-1,"mpg123":-1,"strict":"limit","frames":220500,"pcm":"intact"}
+    },
+    {
+      "name": "c-id3v1",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 1,
+      "ops": [{"op":"append-id3v1"}],
+      "sha256": "610498e92133317006dbf618c8c65f0711a132a3b9c49305ef556ada64434113",
+      "expect": {"ffmpeg":48000,"mpg123":48000,"strict":"ok","frames":48000,"pcm":"intact"}
+    },
+    {
+      "name": "c-cut-boundary",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 1,
+      "ops": [{"op":"truncate","frame":50}],
+      "sha256": "acc28c8513d92fc4e71a82f69956a602ba9c0485655b480c1a9e02c2b50fd6e8",
+      "expect": {"ffmpeg":27695,"mpg123":27695,"strict":"truncated","frames":27695,"pcm":"prefix"}
+    },
+    {
+      "name": "c-extra",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 1,
+      "ops": [{"op":"copy-frames","frame":40,"n":10}],
+      "sha256": "51143e9c918292b08bd7c3b013fec37c9c71ca804917043739ad228bad7239a0",
+      "expect": {"ffmpeg":54191,"mpg123":53760,"strict":"truncated","frames":53760,"pcm":"extra"},
+      "note": "帧数多于声明:LAME 标签的尾部填充位于声明帧数的末端,按声明位置丢弃,与 mpg123 相同(53760);FFmpeg 在这里没有丢弃尾部填充(54191)。"
+    },
+    {
+      "name": "c-mid-id3v2",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 1,
+      "ops": [{"op":"insert-id3v2","frame":43,"n":64}],
+      "sha256": "c1be5e9ff920415f67552cd35c25735585d6c8c7527a4a7b00e503c6d1717b08",
+      "expect": {"ffmpeg":47424,"mpg123":48000,"strict":"corrupt","frames":48000,"pcm":"intact"},
+      "note": "流中间的标签不是音频,期望与完好文件相同;mpg123 输出 48000,长度与完好文件相同;FFmpeg 在标签处少输出一帧(47424)。"
+    },
+    {
+      "name": "a-cut-midframe",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"truncate","frame":116,"off":100}],
+      "sha256": "330ec783f9fed886573d0b7d6a4ac94c3eb7721ee5c412984f6ced728b350c8f",
+      "expect": {"ffmpeg":133679,"mpg123":132527,"strict":"truncated","firstDamage":116}
+    },
+    {
+      "name": "a-delete",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"delete","frame":100,"off":200,"n":50}],
+      "sha256": "4a42b1ae451a92503415714fea734ee3f6e6f2740701720f2a10349109743020",
+      "expect": {"ffmpeg":218927,"mpg123":220079,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-insert",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"insert-random","frame":100,"off":200,"n":50,"seed":2}],
+      "sha256": "a25872b364c8052998654a78be1b99ebf634dd88f08ef895356e78d6bed84ef0",
+      "expect": {"ffmpeg":219348,"mpg123":220500,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-icy",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"insert-icy","frame":100,"off":150}],
+      "sha256": "6768f056bc8a6c10d14ad33862f15a8c87ee65c7af750fb318c18fec37b348c3",
+      "expect": {"ffmpeg":219348,"mpg123":220500,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-broken-sync",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"break-sync","frame":100}],
+      "sha256": "37fe16e5ac750b4f6a1db776f9d4b52e03b898073c9ea1be9278629d44e6e379",
+      "expect": {"ffmpeg":218927,"mpg123":220079,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-protection-flip",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"flip-protection","frame":100}],
+      "sha256": "ed398912ac233e47a8d1265b02a5685e5a08cde17d389c45ced946c7b3830d19",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-maindata",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"overwrite-random","frame":100,"off":40,"n":40,"seed":3}],
+      "sha256": "e0ffa7ee6d91d979c5a5190ca0567281d5638bcb6f4e389322cb289c00d1c1d2",
+      "expect": {"ffmpeg":220500,"mpg123":220500,"strict":"ok","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-sideinfo",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"big-values","frame":100}],
+      "sha256": "d88845fea4def340b97a2b530ea7c73e8df87e173f493967fcfa78073b4bc05f",
+      "expect": {"ffmpeg":219348,"mpg123":220500,"strict":"corrupt","firstDamage":100,"tailFrom":103}
+    },
+    {
+      "name": "a-concat-same",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"append-file","file":"corpus/synthetic/sine440-stereo-44k1-cbr192.mp3"}],
+      "sha256": "4bd4d0dbe47abcb6b223fb0b176a0fe016652748d2d812f664a05825cbc2be12",
+      "expect": {"ffmpeg":443567,"mpg123":443988,"strict":"corrupt","firstDamage":193,"tailBase":"corpus/synthetic/sine440-stereo-44k1-cbr192.mp3","tailFrom":3}
+    },
+    {
+      "name": "a-concat-other",
+      "base": "corpus/synthetic/sine440-stereo-44k1-cbr192.mp3",
+      "class": 2,
+      "ops": [{"op":"append-audio","file":"corpus/synthetic/pluck-stereo-44k1-abr128-lame.mp3"}],
+      "sha256": "103069c07abd532b4acdcac076f473c606b50f5eb780a401c280b71e9f57ffaf",
+      "expect": {"ffmpeg":312239,"mpg123":311508,"strict":"corrupt","firstDamage":193,"tailBase":"corpus/synthetic/pluck-stereo-44k1-abr128-lame.mp3","tailFrom":3}
+    },
+    {
+      "name": "d-crc-field",
+      "base": "corpus/synthetic/pluck-stereo-32k-cbr96-crc-lame.mp3",
+      "class": 2,
+      "ops": [{"op":"crc-field","frame":30}],
+      "sha256": "b03085a97fa4e9e55fc2b4809fdf1a85c876c61df828b4f038261c7aa1d373ad",
+      "expect": {"ffmpeg":64000,"mpg123":64000,"strict":"corrupt","firstDamage":30,"tailFrom":33}
+    },
+    {
+      "name": "d-protection-flip",
+      "base": "corpus/synthetic/pluck-stereo-32k-cbr96-crc-lame.mp3",
+      "class": 2,
+      "ops": [{"op":"flip-protection","frame":30}],
+      "sha256": "a1189b00e3e107291b8bda42e98ead83f685c8cc0ac8105f5c357e9a51894512",
+      "expect": {"ffmpeg":62848,"mpg123":64000,"strict":"corrupt","firstDamage":30,"tailFrom":33}
+    },
+    {
+      "name": "c-delete",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 2,
+      "ops": [{"op":"delete","frame":40,"off":100,"n":30}],
+      "sha256": "3fb39a494d034f2e02456017c8a1ebc7cf48ac49aae2e1cfe7e7dc0855e51bb0",
+      "expect": {"ffmpeg":46703,"mpg123":47663,"strict":"corrupt","firstDamage":40,"tailFrom":45},
+      "note": "第 40 帧没有整帧删去,只删去其中 30 字节。LSF 每帧 192 字节,main_data_begin 可回指 255 字节:第 41 帧的 main data 起点在第 39 帧,延伸经过第 40 帧;第 42 帧的起点在第 40 帧内,读到被删去的区间。最后一个读到损坏数据的帧是 42,尾部从其后第 3 帧(45)起比较。"
+    },
+    {
+      "name": "c-maindata",
+      "base": "corpus/synthetic/pluck-stereo-24k-cbr64-lame.mp3",
+      "class": 2,
+      "ops": [{"op":"overwrite-random","frame":40,"off":30,"n":30,"seed":4}],
+      "sha256": "138c3e80db4626b81fb1c5efb917dd403b2ad9c68f7e92aa6a15dd6358052f9a",
+      "expect": {"ffmpeg":48000,"mpg123":48000,"strict":"ok","firstDamage":40,"tailFrom":44},
+      "note": "LSF 每帧 192 字节,main_data_begin 可回指 255 字节:第 41 帧的 main data 读到第 40 帧被改写的字节,最后一个读到损坏数据的帧是 41,尾部从其后第 3 帧(44)起比较。"
+    }
+  ]
+}

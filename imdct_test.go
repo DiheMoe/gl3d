@@ -3,6 +3,7 @@ package gl3d
 import (
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -168,5 +169,27 @@ func TestAntialiasButterfly(t *testing.T) {
 	}
 	if math.Abs(spec[17]-(d*s-u*c)) > 1e-12 {
 		t.Fatalf("spec[17]=%g, want %g", spec[17], d*s-u*c)
+	}
+}
+
+// 8 kHz 混合块的短块区从第 72 条谱线开始:其下原样复制,其上按带重排为频主序三元组。
+func TestReorderShortPartMixed8k(t *testing.T) {
+	bm := bandMapFor(MPEG25, 2, shapeMixed)
+	var src, dst [576]float64
+	for i := range src {
+		src[i] = float64(i + 1)
+	}
+	reorderShortPart(&dst, &src, bm)
+	if !slices.Equal(dst[:72], src[:72]) {
+		t.Fatal("lines below the short part moved")
+	}
+	for _, b := range bm.shortBands {
+		for f := 0; f < b.width; f++ {
+			for w := 0; w < 3; w++ {
+				if got, want := dst[72+3*(b.freqBase+f)+w], src[b.posA+w*b.width+f]; got != want {
+					t.Fatalf("band at %d window %d line %d: got %v, want %v", b.posA, w, f, got, want)
+				}
+			}
+		}
 	}
 }

@@ -91,6 +91,30 @@ func TestTruncationAtEveryByte(t *testing.T) {
 	}
 }
 
+// 两个样例的每个截断点都经过 streamOnce:两种模式、整体与分块读取的结果一致,
+// 模式等价成立,宽松模式不以截断或损坏结束,输出有限。TestTruncationAtEveryByte
+// 断言严格模式的错误类别,这里检查两种模式之间的一致性,所以每个文件只开一个子测试。
+func TestTruncationSweepModes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("每个截断点解码四遍,-short 下跳过")
+	}
+	for _, name := range []string{"short-tone-stereo-44k1-cbr192.mp3", "pluck-stereo-8k-cbr16-lame.mp3"} {
+		t.Run(name, func(t *testing.T) {
+			data := readCorpus(t, name)
+			for n := 0; n <= len(data); n++ {
+				func() {
+					defer func() {
+						if t.Failed() {
+							t.Logf("truncated at byte %d of %d", n, len(data))
+						}
+					}()
+					withLimits(t, func() { streamOnce(t, data[:n]) })
+				}()
+			}
+		})
+	}
+}
+
 // 定向变异:标签长度、side information 与尾部数据的结构损坏各归入确定的
 // 错误类别,损坏帧定位到帧序号,不 panic、不死循环。
 // 位置按 MPEG-1 立体声 side info 布局:main_data_begin 0–8,gr0/ch0 的

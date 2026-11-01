@@ -91,19 +91,24 @@ func bandMapFor(v Version, srIdx int, shape blockShape) *bandMap {
 
 func init() {
 	for v := 0; v < 3; v++ {
-		row := srSfbRow(Version(v), 0)
-		_ = row
+		nLong := 8
+		if Version(v) != MPEG1 {
+			nLong = 6
+		}
 		for r := 0; r < 3; r++ {
 			row := srSfbRow(Version(v), r)
 			bandMaps[v][r][shapeLong] = buildBandMap(sfbLongWidths[row][:], 22, 0, true)
 			bandMaps[v][r][shapeShort] = buildBandMap(sfbShortWidths[row][:], 0, 39, false)
-			nLong := 8
-			if Version(v) != MPEG1 {
-				nLong = 6
-			}
-			bandMaps[v][r][shapeMixed] = buildBandMap(sfbMixedWidths[row][:], nLong, 30, false)
+			bandMaps[v][r][shapeMixed] = buildBandMap(mixedWidths(row, nLong), nLong, 30, false)
 		}
 	}
+}
+
+// mixedWidths 返回混合块的带宽:长块表的前 nLong 带,接短块表第 3 带起的 30 个
+// (带,窗)宽度。两张表的这两段在同一条谱线相接(8 kHz 为 72,其余为 36)。
+func mixedWidths(row, nLong int) []uint8 {
+	w := append([]uint8(nil), sfbLongWidths[row][:nLong]...)
+	return append(w, sfbShortWidths[row][9:39]...)
 }
 
 // buildBandMap 从带宽表构建映射。nLong+nShort 为有效带数;短块部分按窗口交错。
@@ -258,10 +263,10 @@ func readScalefactors(br *bitReader, v Version, gi *granuleInfo, scfsi [4]int, s
 	return pos, nil
 }
 
-// regionBounds 返回三个 region 的谱线边界。长块:regionCount 以长块 sfb 带为
-// 单位;切换块(起始/结束/短/混合)以交错的 (带,窗) 条目为单位——纯短块
-// regionCount0=8 即 9 条目 = 3 带 × 3 窗 × 4 样本 = 36,与 mpg123/dist10
-// 的固定 36 样本边界等价。
+// regionBounds 返回三个 region 的谱线边界。长块与起始/结束块:regionCount 以长块
+// sfb 带为单位;纯短块以交错的 (带,窗) 条目为单位——regionCount0=8 即 9 条目 =
+// 3 带 × 3 窗,与 mpg123/dist10 的固定边界等价。块类型 2 的混合块 region0 止于
+// 长块区上端,与 FFmpeg 相同:按条目计数在 LSF 的混合带上会越过长块区。
 func regionBounds(gi *granuleInfo, bm *bandMap) [4]int {
 	maxEntry := len(bm.sfbStart) - 1
 	clamp := func(b int) int {
@@ -270,12 +275,11 @@ func regionBounds(gi *granuleInfo, bm *bandMap) [4]int {
 		}
 		return b
 	}
-	return [4]int{
-		0,
-		bm.sfbStart[clamp(gi.regionCount[0]+1)],
-		bm.sfbStart[clamp(gi.regionCount[0]+gi.regionCount[1]+2)],
-		576,
+	r1 := bm.sfbStart[clamp(gi.regionCount[0]+1)]
+	if gi.shape() == shapeMixed {
+		r1 = bm.shortBands[0].posA
 	}
+	return [4]int{0, r1, bm.sfbStart[clamp(gi.regionCount[0]+gi.regionCount[1]+2)], 576}
 }
 
 // granuleSpectrum 是一个 granule/声道的解码结果:反量化谱线与立体声处理
@@ -285,29 +289,45 @@ type granuleSpectrum struct {
 	scf         [40]int
 	ist         [40]int // 仅 intensity 右声道(hasIst):LSF 带内全 1 哨兵为 -1
 	hasIst      bool
-	transmitted int // 实际传输的 scf 带数
+	transmitted int // 实际传输的 scf 带数;0 表示 scalefactor 出错已置零,processStereo 据此不做 intensity
 }
 
-// decodeSpectra 解码并反量化一个 granule/channel 的 576 条谱线。
-// scalefactor 与 big_values 不得越过 part2_3_length;末尾不足一个完整
-// count1 四元组的位作为 stuffing 丢弃。
+// decodeSpectra 解码并反量化一个 granule/channel 的 576 条谱线。位消耗以
+// part2_3_length 为硬上限,超出即格式损坏;末尾不足一个完整 count1 四元组的位作为
+// stuffing 丢弃。出错时 gs 仍是确定的频谱:part2_3_length 越过实际数据或 scalefactor
+// 出错时整个 granule 置零,谱数据出错保留此前完整解出的谱线、余下置零;读位置总是
+// 停在本 granule 的结尾,调用方容错后可以接着解码。
 func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *bandMap, shape blockShape, prevScf []int, intensityR bool, gs *granuleSpectrum) error {
 	gi := &si.gr[gr][ch]
-	start := br.pos
-	limit := start + gi.part2_3Length
-	if limit > len(br.data)*8 {
-		return &CorruptError{Frame: -1, Detail: "part2_3_length exceeds main data"}
-	}
+	limit := br.pos + gi.part2_3Length
 	scf := gs.scf[:bm.scfLen]
-	transmitted, err := readScalefactors(br, h.version, gi, si.scfsi[ch], shape, gr == 1, prevScf, intensityR, scf, gs.ist[:bm.scfLen])
+	var transmitted int
+	var err error
+	// 表 0 不读位,只靠读位时的越界检查发现不了超出实际数据的声明
+	if limit > len(br.data)*8 {
+		err = &CorruptError{Frame: -1, Detail: "part2_3_length exceeds main data"}
+	} else if transmitted, err = readScalefactors(br, h.version, gi, si.scfsi[ch], shape, gr == 1, prevScf, intensityR, scf, gs.ist[:bm.scfLen]); err == nil && br.pos > limit {
+		err = &CorruptError{Frame: -1, Detail: "part2_3_length exceeded by scalefactors"}
+	}
 	if err != nil {
+		clear(scf)
+		clear(gs.ist[:bm.scfLen])
+		gs.hasIst, gs.transmitted = intensityR, 0
+		clear(gs.xr[:])
+		br.pos = limit
 		return err
 	}
 	gs.hasIst, gs.transmitted = intensityR, transmitted
-	if br.pos > limit {
-		return &CorruptError{Frame: -1, Detail: "part2_3_length exceeded by scalefactors"}
-	}
 	var is [576]int
+	nz, err := decodeHuffman(br, gi, bm, limit, &is)
+	br.pos = limit
+	dequantize(gi, bm, scf, &is, nz, &gs.xr)
+	return err
+}
+
+// decodeHuffman 解出 big_values 区与 count1 区的量化值写入 is,返回有值的谱线数;出错时
+// 返回此前完整解出的谱线数与错误。
+func decodeHuffman(br *bitReader, gi *granuleInfo, bm *bandMap, limit int, is *[576]int) (int, error) {
 	pos := 0
 	rb := regionBounds(gi, bm)
 	ireg := 0
@@ -317,14 +337,13 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 		}
 		x, y, err := huff.decodePair(br, gi.tableSelect[ireg])
 		if err != nil {
-			return err
+			return pos, err
 		}
-		is[pos] = x
-		is[pos+1] = y
-		pos += 2
 		if br.pos > limit {
-			return &CorruptError{Frame: -1, Detail: "part2_3_length exceeded by huffman data"}
+			return pos, &CorruptError{Frame: -1, Detail: "part2_3_length exceeded by huffman data"}
 		}
+		is[pos], is[pos+1] = x, y
+		pos += 2
 	}
 	// count1 四元组,直到 granule 位耗尽;跨界四元组丢弃(参考实现一致行为)
 	for pos+4 <= 576 && br.pos < limit {
@@ -335,9 +354,7 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 		copy(is[pos:pos+4], q[:])
 		pos += 4
 	}
-	br.pos = limit
-	dequantize(gi, bm, scf, &is, pos, &gs.xr)
-	return nil
+	return pos, nil
 }
 
 // pow43[n] = n^(4/3),覆盖 big_values 的最大幅度 15 + 2^13 − 1 = 8206

@@ -27,6 +27,8 @@ func msStereo(l, r []float64) {
 // intensity 区时各参考实现行为分歧,本实现仍取其 scalefactor。MS 只作用于
 // intensity 界限以下的带与非法位置带;intensity 带不做 MS,也就不乘 MS 的
 // 1/√2——本实现的 1/√2 只在 msStereo 中施加,不做 MS 的带无需补偿。
+// transmitted 为 0 说明右声道的 scalefactor 出错被置零,没有 intensity 位置可用:
+// 各带都按界限以下处理。
 func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int, transmitted int, l, r *[576]float64) {
 	if h.channelMode != modeJointStereo {
 		return
@@ -72,7 +74,7 @@ func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int
 	}
 	for b := 0; b < bm.scfLen; b++ {
 		lo, hi := bm.sfbStart[b], bm.sfbStart[b+1]
-		if belowBound(b) {
+		if transmitted == 0 || belowBound(b) {
 			if ms {
 				msStereo(l[lo:hi], r[lo:hi])
 			}

@@ -51,11 +51,11 @@ type decodeResult struct {
 	sampleRate, nchans int
 }
 
-// decodeWith 以 bufFrames 个采样帧的输出缓冲完整解码 r;错误存入返回值而非 t.Fatal,供用例断言。
+// decodeWith 以严格模式、bufFrames 个采样帧的输出缓冲完整解码 r;错误存入返回值而非 t.Fatal,供用例断言。
 func decodeWith(t *testing.T, r io.Reader, bufFrames int) decodeResult {
 	t.Helper()
 	ctx := context.Background()
-	d, err := NewDecoder(ctx, r)
+	d, err := NewDecoder(ctx, r, Strict())
 	if err != nil {
 		return decodeResult{err: err}
 	}
@@ -82,7 +82,7 @@ func decodeWith(t *testing.T, r io.Reader, bufFrames int) decodeResult {
 // PCM、计数与终止状态都必须逐位一致。
 func TestStreamingInvarianceMatrix(t *testing.T) {
 	files := []string{
-		"sine440-stereo-44k1-cbr192.mp3",    // ID3v2 + Info 标签 + gapless 尾裁(尾部缓冲)
+		"sine440-stereo-44k1-cbr192.mp3",    // ID3v2 + Info 标签 + gapless 裁剪
 		"short-tone-stereo-44k1-cbr192.mp3", // 短输入,裁剪量占整体比例大
 		"sine880-mono-11k025-cbr32.mp3",     // 单声道 MPEG-2.5
 		"pluck-stereo-8k-cbr16-lame.mp3",    // 无 ID3/Xing 标签,144 B 小帧
@@ -123,9 +123,8 @@ func TestStreamingInvarianceMatrix(t *testing.T) {
 	}
 }
 
-// 源在交付全部数据的同时返回非 EOF 错误:已解码样本照常交付。gapless 尾裁
-// 只在正常结束时应用——流以错误告终,无法确认尾部是编码器填充,保留的尾部
-// 样本一并交付;最终以该源错误结束。
+// 源在交付全部数据的同时返回非 EOF 错误:已解码样本照常交付,gapless 尾裁按声明的
+// 位置在解码时完成,交付的样本与正常结束时相同;最终以该源错误结束。
 func TestStreamingSourceErrorAtEnd(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
 	want := decodeWith(t, bytes.NewReader(data), 4096)
@@ -134,8 +133,8 @@ func TestStreamingSourceErrorAtEnd(t *testing.T) {
 	if !errors.Is(got.err, srcErr) {
 		t.Fatalf("err=%v, want the source error", got.err)
 	}
-	if len(got.pcm) < len(want.pcm) || !bytes.Equal(float64Bytes(got.pcm[:len(want.pcm)]), float64Bytes(want.pcm)) {
-		t.Fatalf("delivered %d samples, want the %d samples of a clean decode as prefix", len(got.pcm), len(want.pcm))
+	if !bytes.Equal(float64Bytes(got.pcm), float64Bytes(want.pcm)) {
+		t.Fatalf("delivered %d samples, want the %d samples of a clean decode", len(got.pcm), len(want.pcm))
 	}
 }
 

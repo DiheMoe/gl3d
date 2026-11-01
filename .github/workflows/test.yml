@@ -77,6 +77,24 @@ jobs:
             exit 1
           fi
 
+      - name: Generate variants and their reference PCM
+        run: |
+          go test -count=1 -run '^TestWriteVariants$' . -args -write-variants "$PWD/corpus/variants"
+          # 只有两个参考长度一致的第一类变体与参考比较,只为它们生成参考
+          mapfile -t inputs < <(jq -r --arg dir "$PWD/corpus/variants" '.variants[] | select(.class == 1 and (.inTestOnly | not) and .expect.ffmpeg == .expect.mpg123) | "\($dir)/\(.name).mp3"' corpus/variants.json)
+          go -C tools run ./refgen "${inputs[@]}" "$PWD"/corpus/variants/ref
+
+      - name: Compare class 1 variants with their references
+        run: |
+          set -o pipefail
+          go test -count=1 -run '^TestVariantReferences$' -v . | tee variants.log
+          want=$(jq '[.variants[] | select(.class == 1 and (.inTestOnly | not) and .expect.ffmpeg == .expect.mpg123)] | length' corpus/variants.json)
+          got=$(grep -c -- '--- PASS: TestVariantReferences/' variants.log || true)
+          echo "compared $got of $want class 1 variants"
+          if grep -q -- '--- SKIP' variants.log || [ "$got" != "$want" ]; then
+            exit 1
+          fi
+
   fuzz-smoke:
     name: fuzz smoke (30s per target)
     runs-on: ubuntu-latest

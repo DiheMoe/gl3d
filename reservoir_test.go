@@ -143,3 +143,17 @@ func TestGranuleStartingAtFirstMainDataByte(t *testing.T) {
 			len(pcm), !slices.ContainsFunc(pcm[:576], nonzero), !slices.ContainsFunc(pcm[576:], nonzero))
 	}
 }
+
+// reset 之后历史字节不再可用:回指的部分全部按缺失处理。
+func TestReservoirReset(t *testing.T) {
+	r := newReservoir(511)
+	r.advance(bytes.Repeat([]byte{7}, 300))
+	r.reset()
+	if r.len() != 0 {
+		t.Fatalf("len()=%d after reset", r.len())
+	}
+	w, missing := r.assemble(100, []byte{1, 2, 3})
+	if missing != 100 || len(w) != 103 || w[100] != 1 {
+		t.Fatalf("missing=%d len=%d", missing, len(w))
+	}
+}

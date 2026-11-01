@@ -5,3 +5,4 @@
 *.f64le
 *.f32le
 *.meta
+/corpus/variants/

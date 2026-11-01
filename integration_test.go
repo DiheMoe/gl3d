@@ -17,9 +17,10 @@ import (
 	"testing"
 )
 
+// decodeAll 以严格模式解码到流结束,任何错误都让用例失败;返回解码器与全部 PCM。
 func decodeAll(t *testing.T, r io.Reader) (*Decoder, []float64) {
 	t.Helper()
-	d, err := NewDecoder(context.Background(), r)
+	d, err := NewDecoder(context.Background(), r, Strict())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,8 @@ func loadManifest(t *testing.T) []manifestEntry {
 
 // 清单内每个样例都与 ffmpeg 参考输出逐样本比较,并核对格式、交付帧数与
 // 裁剪行为;新登记的样例自动纳入。边解码边比较,内存不随样例长度增长;
-// 5 分钟样例在 -short 下跳过。
+// 5 分钟样例在 -short 下跳过。比较的是默认模式得到的输出,并要求报告干净:
+// 干净即同一码流在严格模式下成功且输出相同。
 func TestEndToEndLavcCorpus(t *testing.T) {
 	for _, e := range loadManifest(t) {
 		name := strings.TrimSuffix(filepath.Base(e.File), ".mp3")
@@ -104,6 +106,9 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 			rms, max, err := compareStream(d, bufio.NewReaderSize(ref, 1<<16))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if rep := d.Report(); !rep.Clean() {
+				t.Fatalf("report not clean: %+v, first %+v", rep, rep.First)
 			}
 			if e.ExpectedFrames != nil && d.Frames() != *e.ExpectedFrames {
 				t.Fatalf("Frames()=%d, manifest expectedFrames=%d", d.Frames(), *e.ExpectedFrames)

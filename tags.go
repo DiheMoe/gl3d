@@ -25,6 +25,13 @@ func parseID3v2Header(b [10]byte) (size int, footer bool, err error) {
 	return 10 + sz, b[3] == 4 && b[5]&0x10 != 0, nil
 }
 
+// id3v2HeaderAt 报告 b 起点是否是有效的 ID3v2 头:标识 "ID3",size 的四个字节都是
+// syncsafe。接受的范围同 parseID3v2Header,但不构造错误值,不分配内存:逐字节试探垃圾时
+// 先用它排除。
+func id3v2HeaderAt(b []byte) bool {
+	return len(b) >= 10 && string(b[:3]) == "ID3" && (b[6]|b[7]|b[8]|b[9])&0x80 == 0
+}
+
 type xingInfo struct {
 	kind    string // "Xing"=VBR/ABR,"Info"=CBR;统一小写存储
 	frames  *uint32

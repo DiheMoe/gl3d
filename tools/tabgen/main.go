@@ -126,13 +126,8 @@ func main() {
 	if err != nil {
 		fatal("%v", err)
 	}
-	mixed, err := extractCRows(src, "g_scf_mixed")
-	if err != nil {
-		fatal("%v", err)
-	}
 	checkRowSums("g_scf_long", long)
 	checkRowSums("g_scf_short", short)
-	checkRowSums("g_scf_mixed", mixed)
 	partitions := extractCArray(src, "g_scf_partitions")
 	if len(partitions) != 3*28 {
 		fatal("g_scf_partitions: got %d, want 84", len(partitions))
@@ -151,7 +146,7 @@ func main() {
 	fmt.Println("// 生成器与出处见 tools/tabgen。ISO 标准文本到位后须逐字核对。")
 	fmt.Println("//")
 	fmt.Println("// 行为说明:表内容为每个 scalefactor band 的宽度(采样数);短块表按窗口")
-	fmt.Println("// 交错(13 带 x 3 窗,末位为 0 哨兵);混合块表为 8/6 个长带宽 + 30 个短带宽。")
+	fmt.Println("// 交错(13 带 x 3 窗,末位为 0 哨兵)。混合块的带宽由这两张表推出。")
 	fmt.Println("// 行索引 sr_idx = 版本内采样率序号 + (MPEG-2.5:0, MPEG-2:3, MPEG-1:6),")
 	fmt.Println("// 非零再减 1(MPEG-2.5 的 11025 与 12000 Hz 共用第 0 行)。")
 	fmt.Println()
@@ -160,7 +155,6 @@ func main() {
 
 	emitRows("sfbLongWidths", long)
 	emitRows("sfbShortWidths", short)
-	emitRows("sfbMixedWidths", mixed)
 
 	fmt.Println("// scfPartitions 是 scalefactor 分段的带数表(三段块形:长/短/混合 x")
 	fmt.Println("// LSF 的 7 组混合基数变体,每 4 个一组)。")

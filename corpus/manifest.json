@@ -689,6 +689,147 @@
       },
       "expectedFrames": 13230000,
       "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/mixed-mono-8k-cbr64-built.mp3",
+      "sha256": "b2788a721acd2d857ec7b2e8f0334aa3ed60ab39b064c23a17cd41c3dc2f0afe",
+      "origin": {
+        "kind": "constructed",
+        "generator": "go test -run TestMixed8kCorpusMatchesBuilder -update-mixed8k . (mixed8k_test.go)",
+        "encoder": "gl3d test bitstream builder"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 8000,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2.5",
+        "mono",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "short-blocks",
+        "mixed-blocks",
+        "constructed"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 23040,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/mixedlow-mono-8k-cbr64-built.mp3",
+      "sha256": "a78d14d91d54a43a70670d6a132c3cfc01b1b4e9bce1c5fcae14709faa6571d8",
+      "origin": {
+        "kind": "constructed",
+        "generator": "go test -run TestMixed8kCorpusMatchesBuilder -update-mixed8k . (mixed8k_test.go)",
+        "encoder": "gl3d test bitstream builder"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 8000,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2.5",
+        "mono",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "short-blocks",
+        "mixed-blocks",
+        "constructed"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 23040,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/mixedscf-mono-8k-cbr64-built.mp3",
+      "sha256": "32fe86a70472acc96b8aacd132bc71ab571fbedbdf89bfeef93a0a019ab4d792",
+      "origin": {
+        "kind": "constructed",
+        "generator": "go test -run TestMixed8kCorpusMatchesBuilder -update-mixed8k . (mixed8k_test.go)",
+        "encoder": "gl3d test bitstream builder"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 8000,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2.5",
+        "mono",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "short-blocks",
+        "mixed-blocks",
+        "constructed",
+        "scalefactors",
+        "subblock-gain"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 23040,
+      "status": "frozen"
+    },
+    {
+      "file": "corpus/synthetic/startstop-mono-8k-cbr64-built.mp3",
+      "sha256": "55ada27d3faaf0c430243626259bfd9a9560d04348eec632f7f2b356fb87aee7",
+      "origin": {
+        "kind": "constructed",
+        "generator": "go test -run TestMixed8kCorpusMatchesBuilder -update-mixed8k . (mixed8k_test.go)",
+        "encoder": "gl3d test bitstream builder"
+      },
+      "distribution": "self-generated, freely distributable",
+      "expectedFormat": {
+        "mpegVersion": "2.5",
+        "sampleRate": 8000,
+        "channels": 1,
+        "channelMode": "mono",
+        "bitrateMode": "CBR",
+        "bitrateKbps": 64
+      },
+      "features": [
+        "mpeg2.5",
+        "mono",
+        "cbr",
+        "no-xing",
+        "no-gapless-info",
+        "mixed-blocks",
+        "constructed"
+      ],
+      "trim": {
+        "kind": "none",
+        "encDelay": null,
+        "encPadding": null
+      },
+      "expectedFrames": 23040,
+      "status": "frozen"
     }
   ]
 }

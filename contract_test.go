@@ -32,8 +32,7 @@ func audioFrames(t *testing.T, data []byte) (starts []int, end int) {
 			break
 		}
 		if first {
-			xo := 4 + h.sideInfoSize
-			if m := string(data[p+xo : p+xo+4]); m == "Xing" || m == "Info" || string(data[p+36:p+40]) == "VBRI" {
+			if m, _ := metaMagic(data[p:p+h.frameSize], h); m != "" {
 				p += h.frameSize
 				continue
 			}
@@ -48,7 +47,7 @@ func audioFrames(t *testing.T, data []byte) (starts []int, end int) {
 // 一个样本)返回 ErrSmallBuffer,同样不推进。
 func TestReadPCMBufferContract(t *testing.T) {
 	ctx := context.Background()
-	d, err := NewDecoder(ctx, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")))
+	d, err := NewDecoder(ctx, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")), Strict())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +83,7 @@ func TestReadPCMBufferContract(t *testing.T) {
 // 该错误,不能退化为正常结束。
 func TestReadPCMCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	d, err := NewDecoder(ctx, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")))
+	d, err := NewDecoder(ctx, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")), Strict())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +121,7 @@ func TestReadPCMCancelWhileDecoding(t *testing.T) {
 	frames := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := NewDecoder(ctx, newLoopReader(frames, 1<<20))
+	d, err := NewDecoder(ctx, newLoopReader(frames, 1<<20), Strict())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +171,7 @@ func TestCancelDuringTagSkip(t *testing.T) {
 	data := append(id3v2Tag(3<<20), repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)...)
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &cancelAfterReader{r: bytes.NewReader(data), limit: 256 << 10, cancel: cancel}
-	_, err := NewDecoder(ctx, r)
+	_, err := NewDecoder(ctx, r, Strict())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v, want context.Canceled", err)
 	}

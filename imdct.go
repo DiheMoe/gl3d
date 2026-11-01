@@ -104,10 +104,10 @@ type channelState struct {
 
 // reorderShortPart 把短块区域的谱线从带交错布局([带][窗][频])重排为频主序
 // 三元组([频][窗]):des = sfb_start*3 + freq*3 + window,imdct12 以
-// in[w + 3m] 读取。
-func reorderShortPart(dst, src *[576]float64, bm *bandMap, nLongSubbands int) {
-	copy(dst[:nLongSubbands*18], src[:nLongSubbands*18])
-	base := nLongSubbands * 18
+// in[w + 3m] 读取。短块区之下(混合块的长块区)原样复制。
+func reorderShortPart(dst, src *[576]float64, bm *bandMap) {
+	base := bm.shortBands[0].posA
+	copy(dst[:base], src[:base])
 	for _, b := range bm.shortBands {
 		for f := 0; f < b.width; f++ {
 			for w := 0; w < 3; w++ {
@@ -119,16 +119,17 @@ func reorderShortPart(dst, src *[576]float64, bm *bandMap, nLongSubbands int) {
 
 // imdctBlock 把一个声道的 576 条谱线变为 576 个子带时域采样,写入 out
 // (子带主序 [32][18]);spec 被就地抗混叠,调用后不再保留原值。blockType:
-// 0 长、1 起始、2 短、3 结束。nLongSubbands 是混合块(mixed_block_flag 置位)
-// 中用正常窗变换的最低子带数,0 表示不是混合块:短块时这些子带走长块路径,
-// 起始与结束块时只换成正常窗。MPEG-1/2 为 2;MPEG-2.5 @ 8 kHz 为 4(参考实现
-// 观察值,未经标准文本核实)。
+// 0 长、1 起始、2 短、3 结束。nLongSubbands 是混合块(mixed_block_flag 置位)中用
+// 正常窗变换的最低子带数,恒为 2,0 表示不是混合块:短块时这些子带走长块路径,起始
+// 与结束块时只换成正常窗。blockType 为 2 时 bm 必须是短块或混合块的带图
+// (reorderShortPart 读 shortBands[0])。8 kHz 混合块的长块区有 72 条谱线,其中子带 2、3 的 36 条
+// 不重排,直接由 12 点 IMDCT 读取,与 FFmpeg、mpg123 相同。
 func (st *channelState) imdctBlock(spec *[576]float64, blockType int, nLongSubbands int, bm *bandMap, out *[32][18]float64) {
 	work := spec
 	aa := 31
 	if blockType == 2 {
 		clear(st.reorder[:])
-		reorderShortPart(&st.reorder, spec, bm, nLongSubbands)
+		reorderShortPart(&st.reorder, spec, bm)
 		work = &st.reorder
 		aa = nLongSubbands - 1
 	}

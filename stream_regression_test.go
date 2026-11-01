@@ -100,35 +100,49 @@ func TestSourceErrorAfterIsolatedUnsupportedHeader(t *testing.T) {
 	}
 }
 
-// 首帧同步与帧循环须接受相同的 ID3v1 边界。尾标签的截断/多余数据仍然
-// 报错,同时保留之前已经完整解码的音频。
+// 单帧后接 ID3v1 的各种结尾。只有一帧时,首帧要么由帧头到齐前的流结束确认,要么由
+// 恰好以流结束收尾的完整 ID3v1 确认:3 字节标识不足以排除伪同步,残缺标签或标签后另有
+// 数据时两种模式都找不到音频。帧尾之后是无法识别的数据时,严格模式不交付这一帧,
+// 宽松模式交付并记入报告。
 func TestSingleFrameID3v1Boundary(t *testing.T) {
 	frame := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 1)
 	for _, tc := range []struct {
-		name string
-		tail []byte
-		want string
+		name   string
+		tail   []byte
+		want   string // 严格模式的结果
+		frames int64  // 严格模式交付的采样帧数
 	}{
-		{"no tag", nil, "ok"},
-		{"one byte", []byte("T"), "corrupt"},
-		{"two bytes", []byte("TA"), "corrupt"},
-		{"magic only", id3v1Tag()[:3], "truncated"},
-		{"partial tag", id3v1Tag()[:127], "truncated"},
-		{"complete tag", id3v1Tag(), "ok"},
-		{"tag then junk", append(id3v1Tag(), 1), "corrupt"},
+		{"no tag", nil, "ok", 1152},
+		{"one byte", []byte("T"), "corrupt", 0},
+		{"two bytes", []byte("TA"), "corrupt", 0},
+		{"magic only", id3v1Tag()[:3], "truncated", 1152},
+		{"partial tag", id3v1Tag()[:127], "noaudio", 0},
+		{"complete tag", id3v1Tag(), "ok", 1152},
+		{"tag then junk", append(id3v1Tag(), 1), "noaudio", 0},
 	} {
 		for _, chunk := range []int{1, 4096} {
 			t.Run(fmt.Sprintf("%s/chunk%d", tc.name, chunk), func(t *testing.T) {
 				data := append(append([]byte(nil), frame...), tc.tail...)
 				d, err := drain(t, &finalErrorReader{data: data, chunk: chunk, err: io.EOF})
 				if got := errClass(err); got != tc.want {
-					t.Fatalf("err=%v (%s), want %s", err, got, tc.want)
+					t.Fatalf("strict: err=%v (%s), want %s", err, got, tc.want)
 				}
-				if d == nil {
-					t.Fatal("NewDecoder rejected the complete frame")
+				if tc.want == "noaudio" {
+					if d != nil {
+						t.Fatal("strict: ErrNoAudio from ReadPCM, want it from NewDecoder")
+					}
+				} else if got := d.Frames(); got != tc.frames {
+					t.Fatalf("strict: Frames()=%d, want %d", got, tc.frames)
 				}
-				if got := d.Frames(); got != 1152 {
-					t.Fatalf("Frames()=%d, want the complete frame's 1152 samples", got)
+				d, _, err = decodeMode(t, &finalErrorReader{data: data, chunk: chunk, err: io.EOF})
+				if tc.want == "noaudio" {
+					if !errors.Is(err, ErrNoAudio) || d != nil {
+						t.Fatalf("lenient: err=%v, want ErrNoAudio from NewDecoder", err)
+					}
+					return
+				}
+				if err != nil || d.Frames() != 1152 || d.Report().Clean() != (tc.want == "ok") {
+					t.Fatalf("lenient: Frames()=%d err=%v clean=%v, want 1152, no error and clean only without an anomaly", d.Frames(), err, d.Report().Clean())
 				}
 			})
 		}
