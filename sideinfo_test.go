@@ -1,6 +1,7 @@
 package gl3d
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -165,5 +166,58 @@ func TestParseSideInfoRejects(t *testing.T) {
 
 	if err := parseSideInfo(&h, make([]byte, 31), &sideInfo{}); err == nil {
 		t.Fatal("want error for truncated side info")
+	}
+}
+
+func TestLSFPreflagModes(t *testing.T) {
+	for _, versionBits := range []int{2, 0} {
+		for _, mode := range []int{0, 1} {
+			for ext := 0; ext < 4; ext++ {
+				for _, sfc := range []int{499, 500, 502, 511} {
+					h, _ := parseFrameHeader(mkHeader(versionBits, 1, 1, 8, 0, 0, mode, ext, 0))
+					data := make([]byte, h.sideInfoSize)
+					for ch := 0; ch < 2; ch++ {
+						setBits(data, 10+63*ch+12+9+8, 9, sfc)
+					}
+					var si sideInfo
+					if err := parseSideInfo(&h, data, &si); err != nil {
+						t.Fatal(err)
+					}
+					for ch := 0; ch < 2; ch++ {
+						want := 0
+						if sfc >= 500 && !(mode == 1 && ext&1 != 0 && ch == 1) {
+							want = 1
+						}
+						if got := si.gr[0][ch].preflag; got != want {
+							t.Fatalf("version bits %d mode %d ext %d sfc %d channel %d: preflag=%d, want %d", versionBits, mode, ext, sfc, ch, got, want)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestMPEG25EightKHzMixedUnsupported(t *testing.T) {
+	for _, mode := range []int{0, 3} {
+		for sr := 0; sr < 3; sr++ {
+			for _, mixed := range []int{0, 1} {
+				h, _ := parseFrameHeader(mkHeader(0, 1, 1, 4, sr, 0, mode, 0, 0))
+				data := make([]byte, h.sideInfoSize)
+				start := 8 + h.channels()
+				setBits(data, start+12+9+8+9, 1, 1) // window_switching
+				setBits(data, start+12+9+8+9+1, 2, 2)
+				setBits(data, start+12+9+8+9+3, 1, mixed)
+				err := parseSideInfo(&h, data, &sideInfo{})
+				if sr == 2 && mixed == 1 {
+					var unsupported *UnsupportedError
+					if !errors.As(err, &unsupported) || unsupported.Feature != "MPEG-2.5 8 kHz mixed blocks" {
+						t.Fatalf("mode %d: got %v, want 8 kHz mixed block UnsupportedError", mode, err)
+					}
+				} else if err != nil {
+					t.Fatalf("mode %d sr %d mixed %d: %v", mode, sr, mixed, err)
+				}
+			}
+		}
 	}
 }

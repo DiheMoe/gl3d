@@ -123,12 +123,12 @@ func (d *Decoder) skipTags(ctx context.Context) error {
 }
 
 // syncSearch 在 syncSearchBudget 内搜索首个有效音频帧。同步位只产生候选:
-// 候选还须通过帧头校验,并在数据充足时由其 frameSize 处的下一帧帧头确认,
-// 否则伪同步会被误认为帧起点。
+// 候选还须通过帧头校验,并在数据充足时由其 frameSize 处的下一帧帧头或
+// ID3v1 尾标签确认。仅等待确认所需的字节,避免慢速流为固定扫描窗口积攒数据。
 func (d *Decoder) syncSearch(ctx context.Context) error {
 	searched := 0
 	for {
-		if err := d.s.fill(ctx, 4096); err != nil {
+		if err := d.s.fill(ctx, 4); err != nil {
 			return err
 		}
 		w := d.s.buf
@@ -181,7 +181,7 @@ func (d *Decoder) syncSearch(ctx context.Context) error {
 			if errors.As(err, &u) {
 				// 范围外格式:同参数帧头在窗口内复现,说明输入是该格式的流
 				// 而非伪同步,报告不支持;否则按垃圾数据继续搜索
-				if err := d.s.fill(ctx, unsupportedConfirmWindow); err != nil {
+				if err := d.s.fill(ctx, unsupportedConfirmWindow); err != nil && d.s.err == nil {
 					return err
 				}
 				if headerRecurs(d.s.buf, unsupportedConfirmWindow) {
@@ -196,10 +196,18 @@ func (d *Decoder) syncSearch(ctx context.Context) error {
 			continue
 		}
 		if err := d.s.fill(ctx, h.frameSize+4); err != nil {
+			// 源错误不能丢掉已完整到达的末帧。与 EOF 短流一样接受它,
+			// 源错误留在 stream 中,排空完整帧后再报告;取消仍立即返回。
+			if d.s.err != nil && len(d.s.buf) >= h.frameSize {
+				return nil
+			}
 			return err
 		}
 		if len(d.s.buf) >= h.frameSize+4 {
 			nx := d.s.buf[h.frameSize:]
+			if isID3v1Start(nx) {
+				return nil // 标签长度与其后的 EOF 由帧循环验证
+			}
 			if _, err := parseFrameHeader([4]byte(nx[:4])); err == nil {
 				return nil
 			}

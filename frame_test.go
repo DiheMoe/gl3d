@@ -16,6 +16,41 @@ func id3v1Tag() []byte {
 	return tag
 }
 
+// 后续坏帧头不能使已完整收到的前一帧丢失,报错序号指向坏帧头。
+func TestCompleteFramesBeforeBadHeader(t *testing.T) {
+	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 3)
+	data = append(data, "JUNK"...)
+	d, err := drain(t, bytes.NewReader(data))
+	var corrupt *CorruptError
+	if !errors.As(err, &corrupt) || corrupt.Frame != 3 {
+		t.Fatalf("error=%v, want CorruptError at frame 3", err)
+	}
+	if d.Frames() != 3456 {
+		t.Fatalf("delivered %d frames, want 3456", d.Frames())
+	}
+}
+
+// 表 0 及缺失 reservoir 的静音路径可以不读位,仍须拒绝超过窗口的总预算。
+func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
+	for _, missing := range []int{0, 511} {
+		data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
+		si := data[4:36]
+		setBits(si, 0, 9, missing)
+		for i := range 4 {
+			setBits(si, 20+i*59, 12, 4095)
+			setBits(si, 20+i*59+12, 9, 288)
+		}
+		d, err := drain(t, bytes.NewReader(data))
+		var corrupt *CorruptError
+		if !errors.As(err, &corrupt) || corrupt.Frame != 0 {
+			t.Fatalf("missing=%d: error=%v, want CorruptError at frame 0", missing, err)
+		}
+		if d.Frames() != 0 || d.DecodedFrames() != 0 {
+			t.Fatalf("missing=%d: accepted impossible main data", missing)
+		}
+	}
+}
+
 // drain 解码到流结束并返回解码器;io.EOF 视为正常结束,其他错误原样返回。
 func drain(t *testing.T, r io.Reader) (*Decoder, error) {
 	t.Helper()

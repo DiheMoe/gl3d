@@ -289,11 +289,15 @@ type granuleSpectrum struct {
 }
 
 // decodeSpectra 解码并反量化一个 granule/channel 的 576 条谱线。
-// 位消耗以 part2_3_length 为硬上限,超出即格式损坏。
+// scalefactor 与 big_values 不得越过 part2_3_length;末尾不足一个完整
+// count1 四元组的位作为 stuffing 丢弃。
 func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *bandMap, shape blockShape, prevScf []int, intensityR bool, gs *granuleSpectrum) error {
 	gi := &si.gr[gr][ch]
 	start := br.pos
 	limit := start + gi.part2_3Length
+	if limit > len(br.data)*8 {
+		return &CorruptError{Frame: -1, Detail: "part2_3_length exceeds main data"}
+	}
 	scf := gs.scf[:bm.scfLen]
 	transmitted, err := readScalefactors(br, h.version, gi, si.scfsi[ch], shape, gr == 1, prevScf, intensityR, scf, gs.ist[:bm.scfLen])
 	if err != nil {
@@ -323,12 +327,9 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 		}
 	}
 	// count1 四元组,直到 granule 位耗尽;跨界四元组丢弃(参考实现一致行为)
-	for pos < 576 && br.pos < limit {
-		q, err := decodeQuad(br, gi.count1Table == 1)
-		if err != nil {
-			return err
-		}
-		if br.pos > limit || pos+4 > 576 {
+	for pos+4 <= 576 && br.pos < limit {
+		q, complete := decodeQuad(br, gi.count1Table == 1, limit)
+		if !complete {
 			break
 		}
 		copy(is[pos:pos+4], q[:])
