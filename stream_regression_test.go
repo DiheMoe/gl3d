@@ -85,6 +85,25 @@ func TestShortStreamSourceErrorPreservesFrames(t *testing.T) {
 	}
 }
 
+// 流中间的标签之后遇到源错误,缓冲中已经完整的帧照常交出,与没有标签时相同;源错误在
+// 它们之后报告。
+func TestSourceErrorAfterTagRunPreservesFrames(t *testing.T) {
+	h := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0)
+	srcErr := errors.New("source reset")
+	data := append(append(repeatFrames(h, 417, 3), id3v1Tag()...), repeatFrames(h, 417, 2)...)
+	for _, chunk := range []int{1, 7, 4096} {
+		t.Run(fmt.Sprintf("chunk%d", chunk), func(t *testing.T) {
+			d, _, err := decodeMode(t, &finalErrorReader{data: data, chunk: chunk, err: srcErr})
+			if !errors.Is(err, srcErr) || d.Frames() != 5*1152 {
+				t.Fatalf("frames=%d err=%v, want 5760 and the source error", d.Frames(), err)
+			}
+			if r := d.Report(); r.MidstreamTags != 1 || r.First == nil || r.First.Kind != IssueCorrupt {
+				t.Fatalf("report %+v, want the ID3v1 recorded as a mid-stream tag", r)
+			}
+		})
+	}
+}
+
 // 孤立的范围外格式头不应使短流中的合法帧因探测窗口凑不满而被源错误吞掉。
 func TestSourceErrorAfterIsolatedUnsupportedHeader(t *testing.T) {
 	layer2 := mkHeader(3, 2, 1, 10, 0, 0, 0, 0, 0)

@@ -74,6 +74,25 @@ func TestEmphasis(t *testing.T) {
 	}
 }
 
+// 严格模式在 open(首帧)与 next(其后的帧)报 emphasis 时都返回新的错误值:调用方改动
+// 拿到的错误,不影响别的解码器。
+func TestEmphasisErrorNotShared(t *testing.T) {
+	for _, from := range []int{0, 1} {
+		data, _ := shineWithEmphasis(t, from, -1)
+		var errs [2]*UnsupportedError
+		for i := range errs {
+			_, _, err := decodeMode(t, bytes.NewReader(data), Strict())
+			if !errors.As(err, &errs[i]) {
+				t.Fatalf("from frame %d: err=%v, want UnsupportedError", from, err)
+			}
+		}
+		errs[0].Feature = "changed by the caller"
+		if errs[0] == errs[1] || errs[1].Feature != "non-zero emphasis" {
+			t.Fatalf("from frame %d: strict decoders share one error value", from)
+		}
+	}
+}
+
 // 首帧是 Info 标签帧时,open 把它整帧跳过,next 不会再看到它,所以 emphasis 须在 open 里先于
 // 跳过检查。改动帧头使 LAME 标签的 CRC 失效,gapless 字段随之弃用,因此不与原文件比较 PCM。
 func TestEmphasisOnTagFrame(t *testing.T) {

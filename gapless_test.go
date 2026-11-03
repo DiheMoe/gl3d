@@ -301,3 +301,48 @@ func TestXingWithoutFramesField(t *testing.T) {
 		})
 	}
 }
+
+// 宽松模式丢弃的帧不产出 PCM。解码时丢弃的帧(side info 非法)帧尾已经确认,仍占它在
+// 流中的位置:尾裁照常裁掉填充,输出的结尾与完好的流对齐,长度与 FFmpeg 相同。分帧层
+// 丢弃的帧(帧内丢了字节)不计位置,填充落在输出之外不裁,长度与 mpg123 相同。
+func TestTailTrimAfterDroppedFrames(t *testing.T) {
+	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
+	starts, _ := audioFrames(t, data)
+	_, want, err := decodeMode(t, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badSideInfo := bytes.Clone(data)
+	setBits(badSideInfo[starts[100]+4:], 32, 9, 511) // 第 0 granule 左声道的 big_values 超过 288
+	lostBytes := slices.Delete(bytes.Clone(data), starts[100]+200, starts[100]+300)
+	for _, tc := range []struct {
+		name    string
+		data    []byte
+		frames  int64 // 交付的采样帧数:FFmpeg 与 mpg123 实测值
+		aligned bool  // 输出的结尾与完好的流相同
+	}{
+		{"invalid side info", badSideInfo, 220500 - 1152, true},
+		{"bytes lost in a frame", lostBytes, 220500 - 1152 + 731, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, got, err := decodeMode(t, bytes.NewReader(tc.data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r := d.Report(); r.DroppedFrames != 1 {
+				t.Fatalf("dropped %d frames, want 1", r.DroppedFrames)
+			}
+			if d.Frames() != tc.frames {
+				t.Fatalf("Frames()=%d, want %d", d.Frames(), tc.frames)
+			}
+			tail := 2 * 1152 * 50
+			if aligned := slices.Equal(got[len(got)-tail:], want[len(want)-tail:]); aligned != tc.aligned {
+				t.Fatalf("end of the output aligned with the intact stream: %v, want %v", aligned, tc.aligned)
+			}
+			// 分帧层的帧序号与解码器一致:丢弃的帧不算已解码的帧
+			if d.fr.frames != d.framesDecoded {
+				t.Fatalf("framer counts %d frames, decoder %d", d.fr.frames, d.framesDecoded)
+			}
+		})
+	}
+}

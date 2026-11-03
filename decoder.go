@@ -25,15 +25,16 @@ type Decoder struct {
 	pcm     []float64  // 交错样本队列,pcm[pcmOff:] 为待交付部分
 	pcmOff  int
 
-	// gapless 裁剪按解码序号(采样帧,从第一个音频帧起计)丢弃两个区间:头裁
-	// [0, headTrim),尾裁 [tailFrom, tailTo);没有尾裁时两者相等。分帧层丢弃的帧与
-	// side info 非法而丢弃的帧不产出 PCM,不推进序号,所以尾裁区间每丢一帧就比按包
-	// 位置裁的晚一帧;丢帧时推进 pcmTotal 会使 DecodedFrames 失真
+	// gapless 裁剪丢弃两个采样帧区间:头裁 [0, headTrim) 按解码序号(从第一个音频帧
+	// 起计);尾裁 [tailFrom, tailTo) 按帧在流中的位置,没有尾裁时两者相等。解码时丢弃的
+	// 帧帧尾已经确认,不产出 PCM 而仍占位置,与 FFmpeg 相同;分帧层丢弃的数据可能是垃圾
+	// 里的伪帧,不计位置,与 mpg123 相同
 	headTrim, tailFrom, tailTo int64
 	badPadding                 bool // 填充超出头裁之后的长度:不做尾裁,流结束时报告
 	trimming                   bool
 
 	framesDecoded int64 // 已解码音频帧数,不含标签帧
+	dropped       int64 // 解码时丢弃的帧:side info 非法,或所需位数超出 main data
 	pcmTotal      int64 // 已产出 PCM 采样帧数,含被裁剪部分
 	delivered     int64
 	finished      bool

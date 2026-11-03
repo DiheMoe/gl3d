@@ -86,6 +86,9 @@ func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error 
 		}
 		d.note(err)
 		rep.DroppedFrames++
+		d.dropped++
+		// 分帧层交出这一帧时已经计数;它没有解出,分帧层此后记的异常仍按已解码的帧编号
+		d.fr.frames--
 		d.rsv.advance(mainData)
 		return nil
 	}
@@ -163,8 +166,10 @@ func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error 
 // 落在 gapless 裁剪区间内的采样帧丢弃。
 func (d *Decoder) commit(out []float64, nch int) {
 	pos := d.pcmTotal
-	// 尾裁区间在头裁区间之上,先删它不改变头裁区间内的下标
-	keep := cutFrames(out, pos, d.tailFrom, d.tailTo, nch)
+	// 尾裁区间按帧在流中的位置给出,换算到解码序号要减去解码时丢弃的帧。换算后不低于
+	// 头裁区间,先删尾裁区间就不改变头裁区间内的下标
+	shift := d.dropped * int64(d.header.samplesPerFrame)
+	keep := cutFrames(out, pos, max(d.tailFrom-shift, d.headTrim), max(d.tailTo-shift, d.headTrim), nch)
 	keep = cutFrames(keep, pos, 0, d.headTrim, nch)
 	d.pcm = d.pcm[:len(d.pcm)+len(keep)]
 }

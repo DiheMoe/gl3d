@@ -69,7 +69,7 @@ func (f *framer) open(ctx context.Context) (streamInfo, error) {
 			// 报告源错误
 			return streamInfo{}, f.s.err
 		}
-		if err := f.tolerate(errEmphasis, f.s.tell()); err != nil {
+		if err := f.emphasis(f.s.tell()); err != nil {
 			return streamInfo{}, err
 		}
 	}
@@ -447,7 +447,9 @@ func (f *framer) skipOneTag(ctx context.Context, kind TagSet, run *tagRun) error
 // 模式记入报告,把这串标签计为流中间的标签,按长度跳过,bit reservoir 保留,其后的数据
 // 由 frame 处理:完好的帧照常交出,垃圾从后面重新同步。
 func (f *framer) closeRun(ctx context.Context, run *tagRun) error {
-	if err := f.s.fill(ctx, resyncWindow); err != nil {
+	// 源出错或取消时按已经到达的数据判断;错误留给 frame,它先交出完整的帧,与没有标签时
+	// 相同
+	if err := f.s.fill(ctx, resyncWindow); err != nil && len(f.s.buf) < 4 {
 		return err
 	}
 	var err error
@@ -480,7 +482,7 @@ func (f *framer) frame(ctx context.Context) (af audioFrame, ok bool, err error) 
 		return audioFrame{}, false, f.skipBroken(ctx, wrapFrameErr(err, f.frames), f.s.tell(), 0)
 	}
 	if fh.emphasis != 0 {
-		if err := f.tolerate(errEmphasis, f.s.tell()); err != nil {
+		if err := f.emphasis(f.s.tell()); err != nil {
 			return audioFrame{}, false, err
 		}
 	}
@@ -733,10 +735,19 @@ func (f *framer) sameFormat(h frameHeader) bool {
 	return h.version == f.header.version && h.sampleRate == f.header.sampleRate && h.channels() == f.header.channels()
 }
 
-// errEmphasis 是严格模式拒绝 emphasis 非零的帧时报的错误:解码器不做去加重,输出与
-// 编码时的意图不同。宽松模式照常解码,与 FFmpeg 相同;每个这样的帧都要经过 tolerate,
-// 共用一个值才不会逐帧分配。
-var errEmphasis error = &UnsupportedError{Feature: "non-zero emphasis"}
+// errEmphasis 是 emphasis 非零的帧记入报告时用的错误:解码器不做去加重,输出与编码时的
+// 意图不同。宽松模式照常解码,与 FFmpeg 相同;每个这样的帧都要记一次,共用一个值才不会
+// 逐帧分配。
+var errEmphasis = &UnsupportedError{Feature: "non-zero emphasis"}
+
+// emphasis 记下 at 处 emphasis 非零的帧:严格模式返回错误,宽松模式返回 nil 照常解码。
+// 交给调用方的是新值,调用方改动它不影响别的解码器。
+func (f *framer) emphasis(at int64) error {
+	if err := f.tolerate(errEmphasis, at); err != nil {
+		return &UnsupportedError{Feature: errEmphasis.Feature}
+	}
+	return nil
+}
 
 // tagFrameMagic 返回 frame 作为 Xing/Info 或 VBRI 标签帧的标识,不是标签帧时返回
 // 空串。标识的位置与长度要求同首帧的识别(metaMagic);此外帧头(及 CRC)与标识之间
