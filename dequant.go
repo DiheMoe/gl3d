@@ -33,12 +33,12 @@ func init() {
 
 // srSfbRow 把版本与版本内采样率序号映射到 sfb 带宽表的行;
 // MPEG-2.5 的 11025 Hz 与 12000 Hz 共用一行。
-func srSfbRow(v Version, srIdx int) int {
+func srSfbRow(v mpegVersion, srIdx int) int {
 	base := 0
 	switch v {
-	case MPEG1:
+	case mpeg1:
 		base = 6
-	case MPEG2:
+	case mpeg2:
 		base = 3
 	}
 	r := base + srIdx
@@ -85,18 +85,18 @@ type shortBandInfo struct {
 
 var bandMaps [3][3][3]*bandMap
 
-func bandMapFor(v Version, srIdx int, shape blockShape) *bandMap {
+func bandMapFor(v mpegVersion, srIdx int, shape blockShape) *bandMap {
 	return bandMaps[v][srIdx][shape]
 }
 
 func init() {
 	for v := 0; v < 3; v++ {
 		nLong := 8
-		if Version(v) != MPEG1 {
+		if mpegVersion(v) != mpeg1 {
 			nLong = 6
 		}
 		for r := 0; r < 3; r++ {
-			row := srSfbRow(Version(v), r)
+			row := srSfbRow(mpegVersion(v), r)
 			bandMaps[v][r][shapeLong] = buildBandMap(sfbLongWidths[row][:], 22, 0, true)
 			bandMaps[v][r][shapeShort] = buildBandMap(sfbShortWidths[row][:], 0, 39, false)
 			bandMaps[v][r][shapeMixed] = buildBandMap(mixedWidths(row, nLong), nLong, 30, false)
@@ -203,7 +203,7 @@ func scfShapeRow(shape blockShape) int {
 // LSF intensity stereo 的右声道:ist 中带内全 1 的哨兵改写为 -1,表示该带不做
 // intensity。结果写入 scf(长度为该块形的 scf 数)与 ist(仅 intensityR 时
 // 使用);返回实际传输的带数,其后为哨兵带(值为 0)。
-func readScalefactors(br *bitReader, v Version, gi *granuleInfo, scfsi [4]int, shape blockShape, granule2 bool, prevScf []int, intensityR bool, scf, ist []int) (int, error) {
+func readScalefactors(br *bitReader, v mpegVersion, gi *granuleInfo, scfsi [4]int, shape blockShape, granule2 bool, prevScf []int, intensityR bool, scf, ist []int) (int, error) {
 	prow := scfShapeRow(shape)
 	var sizes [4]int
 	var counts [4]int

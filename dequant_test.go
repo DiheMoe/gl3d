@@ -25,13 +25,13 @@ func TestSfbBounds(t *testing.T) {
 
 func TestSrSfbRow(t *testing.T) {
 	cases := []struct {
-		v     Version
+		v     mpegVersion
 		srIdx int
 		want  int
 	}{
-		{MPEG1, 0, 5}, {MPEG1, 1, 6}, {MPEG1, 2, 7},
-		{MPEG2, 0, 2}, {MPEG2, 1, 3}, {MPEG2, 2, 4},
-		{MPEG25, 0, 0}, {MPEG25, 1, 0}, {MPEG25, 2, 1},
+		{mpeg1, 0, 5}, {mpeg1, 1, 6}, {mpeg1, 2, 7},
+		{mpeg2, 0, 2}, {mpeg2, 1, 3}, {mpeg2, 2, 4},
+		{mpeg25, 0, 0}, {mpeg25, 1, 0}, {mpeg25, 2, 1},
 	}
 	for _, tc := range cases {
 		if got := srSfbRow(tc.v, tc.srIdx); got != tc.want {
@@ -64,7 +64,7 @@ func TestReadScalefactorsMPEG1Long(t *testing.T) {
 	}
 	gi := &granuleInfo{scalefacCompress: 6}
 	scf := make([]int, 22)
-	_, err := readScalefactors(&bitReader{data: w.bytes}, MPEG1, gi, [4]int{}, shapeLong, false, nil, false, scf, nil)
+	_, err := readScalefactors(&bitReader{data: w.bytes}, mpeg1, gi, [4]int{}, shapeLong, false, nil, false, scf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestReadScalefactorsScfsiReuse(t *testing.T) {
 	gi := &granuleInfo{scalefacCompress: 6}
 	prev := []int{9, 9, 9, 9, 9, 9}
 	scf := make([]int, 22)
-	_, err := readScalefactors(&bitReader{data: w.bytes}, MPEG1, gi, [4]int{1, 0, 0, 0}, shapeLong, true, prev, false, scf, nil)
+	_, err := readScalefactors(&bitReader{data: w.bytes}, mpeg1, gi, [4]int{1, 0, 0, 0}, shapeLong, true, prev, false, scf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestDequantizeKnownValues(t *testing.T) {
 	// gg=210、scf=0 → xr = is^(4/3)
 	gi := &granuleInfo{globalGain: 210, scalefacScale: 0}
 	scf := make([]int, 22)
-	bm := bandMapFor(MPEG1, 0, shapeLong) // 44100 长块
+	bm := bandMapFor(mpeg1, 0, shapeLong) // 44100 长块
 	var is [576]int
 	is[0] = 8 // 8^(4/3) = 16
 	is[4] = -1
@@ -163,7 +163,7 @@ func TestDequantizeMatchesFormula(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	for _, shape := range []blockShape{shapeLong, shapeShort, shapeMixed} {
 		for trial := 0; trial < 20; trial++ {
-			bm := bandMapFor(MPEG1, rng.Intn(3), shape)
+			bm := bandMapFor(mpeg1, rng.Intn(3), shape)
 			gi := &granuleInfo{
 				globalGain:    100 + rng.Intn(120),
 				scalefacScale: rng.Intn(2),
@@ -217,7 +217,7 @@ func TestDequantizeMatchesFormula(t *testing.T) {
 // nz 之后的谱线必须清零:输出缓冲在 granule 间复用,残留值会混入下一 granule。
 func TestDequantizeZeroesBeyondNZ(t *testing.T) {
 	gi := &granuleInfo{globalGain: 210}
-	bm := bandMapFor(MPEG1, 0, shapeLong)
+	bm := bandMapFor(mpeg1, 0, shapeLong)
 	var is [576]int
 	is[0], is[1] = 3, -2
 	var xr [576]float64
@@ -271,7 +271,7 @@ func TestMidsideStereo(t *testing.T) {
 // 停在 granule 结尾,供宽松模式容错后接着解码。
 func TestDecodeSpectraEnforcesBitBudgets(t *testing.T) {
 	h, _ := parseFrameHeader(mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0))
-	bm := bandMapFor(MPEG1, 0, shapeLong)
+	bm := bandMapFor(mpeg1, 0, shapeLong)
 	cases := []struct {
 		name string
 		gi   granuleInfo
@@ -343,7 +343,7 @@ func TestDequantizeGainExtremes(t *testing.T) {
 		}
 	}
 	for _, shape := range []blockShape{shapeLong, shapeShort, shapeMixed} {
-		bm := bandMapFor(MPEG2, 0, shape)
+		bm := bandMapFor(mpeg2, 0, shape)
 		for _, gg := range []int{0, 255} {
 			for _, scale := range []int{0, 1} {
 				for _, sub := range []int{0, 7} {
@@ -445,9 +445,9 @@ func TestLSFIntensityDoesNotApplyNormalPreflag(t *testing.T) {
 
 // 混合块的长块区与长块表的前 nLong 带相同,其上与纯短块从第 3 带起的布局相同。
 func TestMixedBandMaps(t *testing.T) {
-	for v := MPEG1; v <= MPEG25; v++ {
+	for v := mpeg1; v <= mpeg25; v++ {
 		nLong := 8
-		if v != MPEG1 {
+		if v != mpeg1 {
 			nLong = 6
 		}
 		for sr := 0; sr < 3; sr++ {
@@ -460,7 +460,7 @@ func TestMixedBandMaps(t *testing.T) {
 			}
 		}
 	}
-	bm := bandMapFor(MPEG25, 2, shapeMixed) // 8000 Hz
+	bm := bandMapFor(mpeg25, 2, shapeMixed) // 8000 Hz
 	if got := bm.shortBands[0].posA; got != 72 {
 		t.Fatalf("8 kHz mixed short part starts at line %d, want 72", got)
 	}
@@ -471,23 +471,23 @@ func TestMixedBandMaps(t *testing.T) {
 
 func TestRegionBoundsSwitched(t *testing.T) {
 	for _, tc := range []struct {
-		v         Version
+		v         mpegVersion
 		sr        int
 		blockType int
 		mixed     bool
 		want      int
 	}{
-		{MPEG25, 2, 2, true, 72},  // 8000 Hz
-		{MPEG25, 0, 2, true, 36},  // 11025 Hz
-		{MPEG25, 1, 2, true, 36},  // 12000 Hz
-		{MPEG2, 0, 2, true, 36},   // 22050 Hz
-		{MPEG2, 1, 2, true, 36},   // 24000 Hz
-		{MPEG2, 2, 2, true, 36},   // 16000 Hz
-		{MPEG1, 0, 2, true, 36},   // 44100 Hz
-		{MPEG25, 2, 2, false, 72}, // 纯短块
-		{MPEG2, 0, 2, false, 36},
-		{MPEG25, 2, 1, true, 108}, // 起始块按长块排列
-		{MPEG2, 0, 3, true, 54},
+		{mpeg25, 2, 2, true, 72},  // 8000 Hz
+		{mpeg25, 0, 2, true, 36},  // 11025 Hz
+		{mpeg25, 1, 2, true, 36},  // 12000 Hz
+		{mpeg2, 0, 2, true, 36},   // 22050 Hz
+		{mpeg2, 1, 2, true, 36},   // 24000 Hz
+		{mpeg2, 2, 2, true, 36},   // 16000 Hz
+		{mpeg1, 0, 2, true, 36},   // 44100 Hz
+		{mpeg25, 2, 2, false, 72}, // 纯短块
+		{mpeg2, 0, 2, false, 36},
+		{mpeg25, 2, 1, true, 108}, // 起始块按长块排列
+		{mpeg2, 0, 3, true, 54},
 	} {
 		gi := granuleInfo{windowSwitching: true, blockType: tc.blockType, mixedBlock: tc.mixed, regionCount: [2]int{7, 255}}
 		if tc.blockType == 2 && !tc.mixed {

@@ -18,21 +18,21 @@ func TestParseFrameHeaderValid(t *testing.T) {
 	cases := []struct {
 		name                             string
 		h                                [4]byte
-		version                          Version
+		version                          mpegVersion
 		kbps, rate, frameSize, side, spf int
 		channels                         int
 		crc                              bool
 	}{
-		{"mpeg1 stereo 192k 44.1k", mkHeader(3, 1, 1, 11, 0, 0, 0, 0, 0), MPEG1, 192, 44100, 626, 32, 1152, 2, false},
-		{"mpeg1 mono 96k 44.1k pad", mkHeader(3, 1, 1, 7, 0, 1, 3, 0, 0), MPEG1, 96, 44100, 314, 17, 1152, 1, false},
-		{"mpeg1 stereo 320k 48k", mkHeader(3, 1, 1, 14, 1, 0, 0, 0, 0), MPEG1, 320, 48000, 960, 32, 1152, 2, false},
-		{"mpeg1 stereo 128k 32k", mkHeader(3, 1, 1, 9, 2, 0, 0, 0, 0), MPEG1, 128, 32000, 576, 32, 1152, 2, false},
-		{"mpeg2 stereo 64k 22.05k", mkHeader(2, 1, 1, 8, 0, 0, 0, 0, 0), MPEG2, 64, 22050, 208, 17, 576, 2, false},
-		{"mpeg2 mono 24k 16k", mkHeader(2, 1, 1, 3, 2, 0, 3, 0, 0), MPEG2, 24, 16000, 108, 9, 576, 1, false},
-		{"mpeg25 mono 32k 11.025k", mkHeader(0, 1, 1, 4, 0, 0, 3, 0, 0), MPEG25, 32, 11025, 208, 9, 576, 1, false},
-		{"mpeg25 stereo 8k 8k", mkHeader(0, 1, 1, 1, 2, 0, 0, 0, 0), MPEG25, 8, 8000, 72, 17, 576, 2, false},
-		{"mpeg1 with crc", mkHeader(3, 1, 0, 9, 0, 0, 0, 0, 0), MPEG1, 128, 44100, 417, 32, 1152, 2, true},
-		{"joint stereo keeps modeExt", mkHeader(3, 1, 1, 11, 0, 0, 1, 2, 0), MPEG1, 192, 44100, 626, 32, 1152, 2, false},
+		{"mpeg1 stereo 192k 44.1k", mkHeader(3, 1, 1, 11, 0, 0, 0, 0, 0), mpeg1, 192, 44100, 626, 32, 1152, 2, false},
+		{"mpeg1 mono 96k 44.1k pad", mkHeader(3, 1, 1, 7, 0, 1, 3, 0, 0), mpeg1, 96, 44100, 314, 17, 1152, 1, false},
+		{"mpeg1 stereo 320k 48k", mkHeader(3, 1, 1, 14, 1, 0, 0, 0, 0), mpeg1, 320, 48000, 960, 32, 1152, 2, false},
+		{"mpeg1 stereo 128k 32k", mkHeader(3, 1, 1, 9, 2, 0, 0, 0, 0), mpeg1, 128, 32000, 576, 32, 1152, 2, false},
+		{"mpeg2 stereo 64k 22.05k", mkHeader(2, 1, 1, 8, 0, 0, 0, 0, 0), mpeg2, 64, 22050, 208, 17, 576, 2, false},
+		{"mpeg2 mono 24k 16k", mkHeader(2, 1, 1, 3, 2, 0, 3, 0, 0), mpeg2, 24, 16000, 108, 9, 576, 1, false},
+		{"mpeg25 mono 32k 11.025k", mkHeader(0, 1, 1, 4, 0, 0, 3, 0, 0), mpeg25, 32, 11025, 208, 9, 576, 1, false},
+		{"mpeg25 stereo 8k 8k", mkHeader(0, 1, 1, 1, 2, 0, 0, 0, 0), mpeg25, 8, 8000, 72, 17, 576, 2, false},
+		{"mpeg1 with crc", mkHeader(3, 1, 0, 9, 0, 0, 0, 0, 0), mpeg1, 128, 44100, 417, 32, 1152, 2, true},
+		{"joint stereo keeps modeExt", mkHeader(3, 1, 1, 11, 0, 0, 1, 2, 0), mpeg1, 192, 44100, 626, 32, 1152, 2, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

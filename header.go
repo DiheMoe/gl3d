@@ -2,21 +2,21 @@ package gl3d
 
 // MPEG 音频帧头解析。
 
-// Version 标识 MPEG 音频版本。MPEG-2.5 是 Fraunhofer 非官方扩展,解码
+// mpegVersion 标识 MPEG 音频版本。MPEG-2.5 是 Fraunhofer 非官方扩展,解码
 // 规则等同 MPEG-2,采样率再减半。
-type Version int
+type mpegVersion int
 
 const (
-	MPEG1 Version = iota
-	MPEG2
-	MPEG25
+	mpeg1 mpegVersion = iota
+	mpeg2
+	mpeg25
 )
 
-func (v Version) String() string {
+func (v mpegVersion) String() string {
 	switch v {
-	case MPEG1:
+	case mpeg1:
 		return "1"
-	case MPEG2:
+	case mpeg2:
 		return "2"
 	default:
 		return "2.5"
@@ -24,7 +24,7 @@ func (v Version) String() string {
 }
 
 // lsf 报告是否为低采样率版本(MPEG-2/2.5),两者解码规则相同。
-func (v Version) lsf() bool { return v != MPEG1 }
+func (v mpegVersion) lsf() bool { return v != mpeg1 }
 
 type channelMode int
 
@@ -36,7 +36,7 @@ const (
 )
 
 type frameHeader struct {
-	version         Version
+	version         mpegVersion
 	hasCRC          bool
 	bitrateKbps     int
 	sampleRate      int
@@ -128,11 +128,11 @@ func parseFrameHeader(b [4]byte) (frameHeader, error) {
 	versionBits := b[1] >> 3 & 3
 	switch versionBits {
 	case 3:
-		h.version = MPEG1
+		h.version = mpeg1
 	case 2:
-		h.version = MPEG2
+		h.version = mpeg2
 	case 0:
-		h.version = MPEG25
+		h.version = mpeg25
 	default:
 		return h, &CorruptError{Frame: -1, Detail: "reserved MPEG version bits"}
 	}
@@ -170,7 +170,7 @@ func parseFrameHeader(b [4]byte) (frameHeader, error) {
 	h.sampleRate = sampleRateTable[srIdxVal]
 	if h.version.lsf() {
 		h.sampleRate >>= 1
-		if h.version == MPEG25 {
+		if h.version == mpeg25 {
 			h.sampleRate >>= 1
 		}
 	}

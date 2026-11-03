@@ -69,7 +69,7 @@ func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int
 	}
 
 	maxPos := 64
-	if h.version == MPEG1 {
+	if h.version == mpeg1 {
 		maxPos = 7
 	}
 	for b := 0; b < bm.scfLen; b++ {
@@ -98,7 +98,7 @@ func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int
 			continue
 		}
 		var kl, kr float64
-		if h.version == MPEG1 {
+		if h.version == mpeg1 {
 			kl, kr = intensityPan(ipos)
 		} else {
 			kl, kr = 1, math.Pow(2, -float64(((ipos+1)>>1)<<(giR.scalefacCompress&1))/4)

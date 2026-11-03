@@ -19,7 +19,7 @@ func TestDecodeSpectraHuffmanOverrunLeavesConcealedSpectrum(t *testing.T) {
 			cut = w.nbits
 		}
 	}
-	h := &frameHeader{version: MPEG1, srIdx: 0}
+	h := &frameHeader{version: mpeg1, srIdx: 0}
 	run := func(bigValues int, stale float64) (granuleSpectrum, int, error) {
 		si := &sideInfo{}
 		si.gr[0][0] = granuleInfo{part2_3Length: cut, bigValues: bigValues, globalGain: 210,
@@ -27,7 +27,7 @@ func TestDecodeSpectraHuffmanOverrunLeavesConcealedSpectrum(t *testing.T) {
 		br := &bitReader{data: append(bytes.Clone(w.bytes), make([]byte, 8)...)}
 		var gs granuleSpectrum
 		gs.xr[100] = stale // 上一 granule 的残留必须被清掉
-		err := decodeSpectra(h, si, 0, 0, br, bandMapFor(MPEG1, 0, shapeLong), shapeLong, make([]int, 40), false, &gs)
+		err := decodeSpectra(h, si, 0, 0, br, bandMapFor(mpeg1, 0, shapeLong), shapeLong, make([]int, 40), false, &gs)
 		return gs, br.pos, err
 	}
 	// 期望值:只有前两对、part2_3_length 恰好容下它们时的解码结果
@@ -50,7 +50,7 @@ func TestDecodeSpectraHuffmanOverrunLeavesConcealedSpectrum(t *testing.T) {
 
 // scalefactor 越过 part2_3_length:整个 granule 置零,scalefactor 清零,读位置停在 granule 结尾。
 func TestDecodeSpectraScalefactorOverrunZeroesGranule(t *testing.T) {
-	h := &frameHeader{version: MPEG1, srIdx: 0}
+	h := &frameHeader{version: mpeg1, srIdx: 0}
 	si := &sideInfo{}
 	si.gr[0][0] = granuleInfo{part2_3Length: 10, bigValues: 0, globalGain: 210, scalefacCompress: 15,
 		regionCount: [2]int{7, 7}} // slen (4, 3):scalefactor 共 74 位
@@ -59,7 +59,7 @@ func TestDecodeSpectraScalefactorOverrunZeroesGranule(t *testing.T) {
 		var gs granuleSpectrum
 		gs.xr[0] = 1 // 上一 granule 的残留必须被清掉
 		gs.ist[0], gs.hasIst = 3, !intensityR
-		err := decodeSpectra(h, si, 0, 0, br, bandMapFor(MPEG1, 0, shapeLong), shapeLong, make([]int, 40), intensityR, &gs)
+		err := decodeSpectra(h, si, 0, 0, br, bandMapFor(mpeg1, 0, shapeLong), shapeLong, make([]int, 40), intensityR, &gs)
 		var c *CorruptError
 		if !errors.As(err, &c) {
 			t.Fatalf("intensityR=%v: err=%v, want CorruptError", intensityR, err)
@@ -166,7 +166,7 @@ func TestConcealSpectralData(t *testing.T) {
 // intensity stereo 的右声道 scalefactor 出错被置零后没有位置可用:各带按 intensity 界限以下
 // 处理——不做 MS 时左声道原样、右声道为零,做 MS 时两声道同为左声道的 1/√2。
 func TestProcessStereoWithoutTransmittedScalefactors(t *testing.T) {
-	h := &frameHeader{version: MPEG1, channelMode: modeJointStereo}
+	h := &frameHeader{version: mpeg1, channelMode: modeJointStereo}
 	for _, tc := range []struct {
 		name         string
 		modeExt      int
@@ -180,7 +180,7 @@ func TestProcessStereoWithoutTransmittedScalefactors(t *testing.T) {
 		for i := range l {
 			l[i] = 1
 		}
-		processStereo(h, &granuleInfo{}, bandMapFor(MPEG1, 0, shapeLong), make([]int, 40), 0, &l, &r)
+		processStereo(h, &granuleInfo{}, bandMapFor(mpeg1, 0, shapeLong), make([]int, 40), 0, &l, &r)
 		for i := range l {
 			if l[i] != tc.wantL || r[i] != tc.wantR {
 				t.Fatalf("%s: line %d = (%v, %v), want (%v, %v)", tc.name, i, l[i], r[i], tc.wantL, tc.wantR)
@@ -198,7 +198,7 @@ func TestConcealIntensityStereoRightScalefactors(t *testing.T) {
 	// 帧头须是 MPEG-1(side info 位置按它算)、joint stereo 且 intensity 置位
 	const sel = 1
 	h, err := parseFrameHeader(fuzzFrameHeaders[sel])
-	if err != nil || h.version != MPEG1 || h.channelMode != modeJointStereo || h.modeExt&1 == 0 {
+	if err != nil || h.version != mpeg1 || h.channelMode != modeJointStereo || h.modeExt&1 == 0 {
 		t.Fatalf("fuzz header %d: %+v (err=%v), want MPEG-1 joint stereo with intensity", sel, h, err)
 	}
 	d, _ := concealCase(t, buildFrames(sel, body), 0, 0)

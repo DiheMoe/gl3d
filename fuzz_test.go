@@ -172,7 +172,7 @@ func parseTagsOnce(t *testing.T, b []byte) {
 // 帧头、CRC 与 side information(帧循环据此切片);失败只归为损坏或不支持,
 // 不支持仅在没有保留值时出现。
 func TestParseFrameHeaderAllValues(t *testing.T) {
-	rates := map[Version][]int{MPEG1: {44100, 48000, 32000}, MPEG2: {22050, 24000, 16000}, MPEG25: {11025, 12000, 8000}}
+	rates := map[mpegVersion][]int{mpeg1: {44100, 48000, 32000}, mpeg2: {22050, 24000, 16000}, mpeg25: {11025, 12000, 8000}}
 	for v := 0; v < 1<<21; v++ {
 		b := [4]byte{0xFF, 0xE0 | byte(v>>16), byte(v >> 8), byte(v)}
 		h, err := parseFrameHeader(b)

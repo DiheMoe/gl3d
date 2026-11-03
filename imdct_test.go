@@ -139,7 +139,7 @@ func TestShortBlockLayout(t *testing.T) {
 	spec[2] = 0
 	spec[3] = 0
 	var out [32][18]float64
-	st.imdctBlock(&spec, 2, 0, bandMapFor(MPEG1, 0, shapeShort), &out)
+	st.imdctBlock(&spec, 2, 0, bandMapFor(mpeg1, 0, shapeShort), &out)
 	// 子带 0、窗口 0:imdct12(x=[1,0,0,0,0,0])[i] = cos(π/24(2i+7)),加短窗,
 	// 落在帧偏移 6..17
 	for i := 0; i < 6; i++ {
@@ -174,7 +174,7 @@ func TestAntialiasButterfly(t *testing.T) {
 
 // 8 kHz 混合块的短块区从第 72 条谱线开始:其下原样复制,其上按带重排为频主序三元组。
 func TestReorderShortPartMixed8k(t *testing.T) {
-	bm := bandMapFor(MPEG25, 2, shapeMixed)
+	bm := bandMapFor(mpeg25, 2, shapeMixed)
 	var src, dst [576]float64
 	for i := range src {
 		src[i] = float64(i + 1)

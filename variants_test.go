@@ -275,7 +275,7 @@ func variantBytes(t *testing.T, v variant) []byte {
 			mono := h.channels() == 1
 			// gr0/ch0 的 big_values 紧跟在 part2_3_length 之后;side info 在帧头与可选 CRC 之后
 			var bit int
-			if h.version == MPEG1 {
+			if h.version == mpeg1 {
 				private, scfsi := 3, 8
 				if mono {
 					private, scfsi = 5, 4

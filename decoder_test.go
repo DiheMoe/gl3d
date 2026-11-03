@@ -63,7 +63,7 @@ func TestNewDecoderCorpusGolden(t *testing.T) {
 		if d.lame == nil || d.lame.encDelay != 576 || d.lame.encPadding != 1260 {
 			t.Fatalf("lame: %+v", d.lame)
 		}
-		if d.header.version != MPEG1 {
+		if d.header.version != mpeg1 {
 			t.Fatalf("version %v", d.header.version)
 		}
 	})
@@ -81,7 +81,7 @@ func TestNewDecoderCorpusGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if d.SampleRate() != 11025 || d.Channels() != 1 || d.header.version != MPEG25 {
+		if d.SampleRate() != 11025 || d.Channels() != 1 || d.header.version != mpeg25 {
 			t.Fatalf("rate=%d ch=%d v=%v", d.SampleRate(), d.Channels(), d.header.version)
 		}
 		if d.xing == nil || *d.xing.frames != 98 {

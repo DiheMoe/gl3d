@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// Report 汇总解码器在流中遇到的结构。随时可查;
-// ReadPCM 返回 io.EOF 或 ErrSmallBuffer 以外的错误之后为最终值。
+// Report 汇总解码器在流中遇到的结构。随时可查;ReadPCM 返回 io.EOF 或其他错误
+// (ErrSmallBuffer 除外,它不终止解码)之后为最终值。
 type Report struct {
 	DeclaredFrames    int64  // Xing/VBRI 声明的音频帧数(MPEG 帧,不是采样帧);-1 表示没有采用的声明,声明为 0 视为未知
 	AudioFrames       int64  // 已解码的音频帧数(MPEG 帧,不是采样帧),不含标签帧
