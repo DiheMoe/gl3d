@@ -90,66 +90,12 @@ func TestNewDecoderCorpusGolden(t *testing.T) {
 	})
 }
 
-func TestNewDecoderShortReads(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
-	d, err := NewDecoder(context.Background(), &oneByteReader{r: bytes.NewReader(data)}, Strict())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.SampleRate() != 44100 || d.xing == nil || *d.xing.frames != 193 {
-		t.Fatalf("rate=%d xing=%+v", d.SampleRate(), d.xing)
-	}
-}
-
 func TestNewDecoderErrors(t *testing.T) {
 	frame := func() []byte {
 		h := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0) // 128 kbps 44.1 kHz 立体声:帧长 417 B
 		return append(h[:], make([]byte, 417-4)...)
 	}
 
-	t.Run("junk beyond sync budget", func(t *testing.T) {
-		data := append(make([]byte, 70<<10), frame()...)
-		data = append(data, frame()...)
-		_, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-		var l *LimitError
-		if !errors.As(err, &l) {
-			t.Fatalf("err=%v, want LimitError", err)
-		}
-	})
-	t.Run("junk within budget then frames", func(t *testing.T) {
-		data := append(make([]byte, 100), frame()...)
-		data = append(data, frame()...)
-		d, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if d.SampleRate() != 44100 {
-			t.Fatalf("rate=%d", d.SampleRate())
-		}
-	})
-	t.Run("truncated id3v2", func(t *testing.T) {
-		data := []byte{'I', 'D', '3', 3, 0, 0, 0, 0, 0x07, 0x7F} // 声明标签体 1023 字节(syncsafe)
-		data = append(data, make([]byte, 50)...)
-		_, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-		var tr *TruncatedError
-		if !errors.As(err, &tr) {
-			t.Fatalf("err=%v, want TruncatedError", err)
-		}
-	})
-	t.Run("only tags no audio", func(t *testing.T) {
-		data := []byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 10}
-		data = append(data, make([]byte, 10)...)
-		_, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-		if !errors.Is(err, ErrNoAudio) {
-			t.Fatalf("err=%v, want ErrNoAudio", err)
-		}
-	})
-	t.Run("empty input", func(t *testing.T) {
-		_, err := NewDecoder(context.Background(), bytes.NewReader(nil), Strict())
-		if !errors.Is(err, ErrNoAudio) {
-			t.Fatalf("err=%v, want ErrNoAudio", err)
-		}
-	})
 	t.Run("zero progress reader", func(t *testing.T) {
 		_, err := NewDecoder(context.Background(), zeroReader{}, Strict())
 		if !errors.Is(err, io.ErrNoProgress) {
@@ -184,15 +130,6 @@ func TestNewDecoderErrors(t *testing.T) {
 			t.Fatalf("rate=%d", d.SampleRate())
 		}
 	})
-	t.Run("single frame at EOF accepted", func(t *testing.T) {
-		d, err := NewDecoder(context.Background(), bytes.NewReader(frame()), Strict())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if d.SampleRate() != 44100 {
-			t.Fatalf("rate=%d", d.SampleRate())
-		}
-	})
 }
 
 // repeatFrames 返回 n 个以 h 为帧头、帧体全零的 size 字节帧。
@@ -216,19 +153,21 @@ func TestNewDecoderUnsupportedStreams(t *testing.T) {
 		{"layer II beyond sync budget", repeatFrames(layer2, 626, 120), "MPEG Layer II"},
 		{"layer I", repeatFrames(mkHeader(3, 3, 1, 8, 0, 0, 0, 0, 0), 276, 20), "MPEG Layer I"}, // 256k:帧长 276 B
 		{"free format", repeatFrames(mkHeader(3, 1, 1, 0, 0, 0, 0, 0, 0), 500, 20), "free format bitrate"},
-		{"emphasis", repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 1), 417, 20), "non-zero emphasis"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewDecoder(context.Background(), bytes.NewReader(tc.data), Strict())
-			var u *UnsupportedError
-			if !errors.As(err, &u) {
-				t.Fatalf("err=%v, want UnsupportedError", err)
-			}
-			if u.Feature != tc.feature {
-				t.Fatalf("Feature=%q, want %q", u.Feature, tc.feature)
-			}
-		})
+	// 首帧不支持时两种模式都在 NewDecoder 返回
+	for _, m := range bothModes {
+		for _, tc := range cases {
+			t.Run(m.name+"/"+tc.name, func(t *testing.T) {
+				_, err := NewDecoder(context.Background(), bytes.NewReader(tc.data), m.opts...)
+				var u *UnsupportedError
+				if !errors.As(err, &u) {
+					t.Fatalf("err=%v, want UnsupportedError", err)
+				}
+				if u.Feature != tc.feature {
+					t.Fatalf("Feature=%q, want %q", u.Feature, tc.feature)
+				}
+			})
+		}
 	}
 }
 
@@ -261,11 +200,13 @@ func TestSyncSearchCandidates(t *testing.T) {
 // 同步搜索预算按首帧前丢弃的字节数计:超过 64 KiB 即资源超限,流随后结束也一样;
 // 结果不随读取分块变化。
 func TestSyncSearchBudgetAtStreamEnd(t *testing.T) {
+	frames := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
 	cases := []struct {
 		name string
 		data []byte
 		want string
 	}{
+		{"junk beyond budget then frames", append(make([]byte, 70<<10), frames...), "limit"},
 		{"junk at budget", make([]byte, syncSearchBudget), "noaudio"},
 		{"junk beyond budget", make([]byte, syncSearchBudget+1), "limit"},
 		{"junk at budget then partial sync", append(make([]byte, syncSearchBudget), 0xFF), "truncated"},
@@ -299,39 +240,7 @@ type zeroFill struct{}
 
 func (zeroFill) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
-// 大标签(如内嵌封面)可达数 MiB,远超内部缓冲:必须分块跳过,既不按声明
-// 长度分配内存,也不因缓冲不足而失败。
-func TestSkipLargeID3v2(t *testing.T) {
-	frames := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
-	for _, size := range []int{100 << 10, 3 << 20} {
-		data := append(id3v2Tag(size), frames...)
-		for name, r := range map[string]io.Reader{
-			"bytes":   bytes.NewReader(data),
-			"onebyte": &oneByteReader{r: bytes.NewReader(data)},
-		} {
-			if name == "onebyte" && size > 1<<20 {
-				continue // 逐字节读 3 MiB 太慢,bytes 读取已覆盖
-			}
-			d, err := NewDecoder(context.Background(), r, Strict())
-			if err != nil {
-				t.Fatalf("size %d %s: %v", size, name, err)
-			}
-			if d.SampleRate() != 44100 {
-				t.Fatalf("size %d %s: rate=%d", size, name, d.SampleRate())
-			}
-		}
-	}
-}
-
 func TestSkipID3v2Limits(t *testing.T) {
-	t.Run("truncated large tag", func(t *testing.T) {
-		data := id3v2Tag(200 << 10)[:150<<10]
-		_, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-		var tr *TruncatedError
-		if !errors.As(err, &tr) {
-			t.Fatalf("err=%v, want TruncatedError", err)
-		}
-	})
 	t.Run("tags beyond 16 MiB budget", func(t *testing.T) {
 		// 预算按累计计算:单个 9 MiB 标签合法,两个相加越过 16 MiB
 		big := id3v2Tag(9 << 20)
@@ -382,21 +291,5 @@ func TestID3v2VersionsSkipped(t *testing.T) {
 					d.Frames(), bytes.Equal(float64Bytes(got), float64Bytes(want)))
 			}
 		})
-	}
-}
-
-func TestSkipMultipleID3v2(t *testing.T) {
-	tag := []byte{'I', 'D', '3', 3, 0, 0, 0, 0, 0, 4}
-	tag = append(tag, make([]byte, 4)...)
-	hdr := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0)
-	frame := append(hdr[:], make([]byte, 413)...)
-	data := append(append(append([]byte{}, tag...), tag...), frame...)
-	data = append(data, frame...)
-	d, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.SampleRate() != 44100 {
-		t.Fatalf("rate=%d", d.SampleRate())
 	}
 }

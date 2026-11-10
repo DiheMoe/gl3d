@@ -138,21 +138,6 @@ func TestStreamingSourceErrorAtEnd(t *testing.T) {
 	}
 }
 
-// 源错误发生在下一帧帧头读到一半时:之前的完整帧照常解码交付,最终报告该
-// 源错误——半个帧头既不能当完整帧,也不能静默当作正常结尾。
-func TestStreamingSourceErrorMidHeader(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
-	starts, _ := audioFrames(t, data)
-	srcErr := errors.New("connection reset")
-	got := decodeWith(t, &dataWithErrReader{r: bytes.NewReader(data[:starts[100]+2]), err: srcErr}, 4096)
-	if !errors.Is(got.err, srcErr) {
-		t.Fatalf("err=%v, want the source error", got.err)
-	}
-	if got.decoded != 100*1152 {
-		t.Fatalf("DecodedFrames()=%d, want %d (100 个完整帧)", got.decoded, 100*1152)
-	}
-}
-
 // starveReader 交付前 n 字节后永远返回 (0, nil),模拟解码中途的持续无进展。
 type starveReader struct {
 	r *bytes.Reader

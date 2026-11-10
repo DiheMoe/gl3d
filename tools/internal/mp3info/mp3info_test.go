@@ -34,81 +34,68 @@ func xingBlock(magic string, frames, bytes uint32, encoder string, encDelay, enc
 	return append(b, lame...)
 }
 
-func TestParseMPEG1StereoInfoWithLAME(t *testing.T) {
-	var data []byte
-	data = append(data, header(3, 11, 0, 0, 0)...) // MPEG-1, 192kbps, 44100, stereo
-	data = append(data, make([]byte, 32)...)       // side info
-	data = append(data, xingBlock("Info", 193, 121625, "Lavc63.1.", 576, 1260)...)
-	data = append(data, make([]byte, 512)...) // 帧的其余部分
+func TestParseXingInfoWithLAME(t *testing.T) {
+	cases := []struct {
+		name       string
+		hdr        []byte
+		sideInfo   int
+		magic      string
+		frames     uint32
+		bytes      uint32
+		encoder    string
+		delay      uint16
+		padding    uint16
+		tail       int
+		version    string
+		sampleRate int
+		channels   int
+		mode       string
+		bitrate    int
+		frameSize  int
+		kind       string
+	}{
+		{"MPEG-1 stereo", header(3, 11, 0, 0, 0), 32, "Info", 193, 121625, "Lavc63.1.", 576, 1260, 512,
+			"1", 44100, 2, "stereo", 192, 626, "info"},
+		{"MPEG-2.5 mono", header(0, 4, 0, 0, 3), 9, "Info", 98, 20732, "Lavc63.1.", 576, 1260, 64,
+			"2.5", 11025, 1, "mono", 32, 208, "info"},
+		// floor(72*64000/22050)=208 + 1 padding
+		{"MPEG-2 joint stereo with padding", header(2, 8, 0, 1, 1), 17, "Xing", 194, 41000, "LAME3.100", 576, 1000, 64,
+			"2", 22050, 2, "joint_stereo", 64, 209, "xing"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var data []byte
+			data = append(data, tc.hdr...)
+			data = append(data, make([]byte, tc.sideInfo)...)
+			data = append(data, xingBlock(tc.magic, tc.frames, tc.bytes, tc.encoder, tc.delay, tc.padding)...)
+			data = append(data, make([]byte, tc.tail)...) // 帧的其余部分
 
-	info, err := Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.MPEGVersion != "1" || info.SampleRate != 44100 || info.Channels != 2 || info.ChannelMode != "stereo" {
-		t.Fatalf("format: %+v", info)
-	}
-	if info.BitrateKbps != 192 || info.FrameSize != 626 {
-		t.Fatalf("bitrate=%d frameSize=%d, want 192/626", info.BitrateKbps, info.FrameSize)
-	}
-	if info.Xing == nil || info.Xing.Kind != "info" {
-		t.Fatalf("xing: %+v", info.Xing)
-	}
-	if info.Xing.Frames == nil || *info.Xing.Frames != 193 {
-		t.Fatalf("xing frames: %+v", info.Xing.Frames)
-	}
-	if info.Xing.Bytes == nil || *info.Xing.Bytes != 121625 || !info.Xing.TOC {
-		t.Fatalf("xing bytes/toc: %+v", info.Xing)
-	}
-	if info.LAME == nil || info.LAME.Encoder != "Lavc63.1." || info.LAME.EncDelay != 576 || info.LAME.EncPadding != 1260 {
-		t.Fatalf("lame: %+v", info.LAME)
-	}
-	if info.ID3v2 != nil || info.ID3v1 || info.VBRI != nil {
-		t.Fatalf("unexpected tags: %+v", info)
-	}
-}
-
-func TestParseMPEG25Mono(t *testing.T) {
-	var data []byte
-	data = append(data, header(0, 4, 0, 0, 3)...) // MPEG-2.5, 32kbps, 11025, mono
-	data = append(data, make([]byte, 9)...)       // side info
-	data = append(data, xingBlock("Info", 98, 20732, "Lavc63.1.", 576, 1260)...)
-	data = append(data, make([]byte, 64)...)
-
-	info, err := Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.MPEGVersion != "2.5" || info.SampleRate != 11025 || info.Channels != 1 || info.ChannelMode != "mono" {
-		t.Fatalf("format: %+v", info)
-	}
-	if info.BitrateKbps != 32 || info.FrameSize != 208 {
-		t.Fatalf("bitrate=%d frameSize=%d, want 32/208", info.BitrateKbps, info.FrameSize)
-	}
-	if info.Xing == nil || *info.Xing.Frames != 98 {
-		t.Fatalf("xing: %+v", info.Xing)
-	}
-}
-
-func TestParseMPEG2JointStereoPadding(t *testing.T) {
-	var data []byte
-	data = append(data, header(2, 8, 0, 1, 1)...) // MPEG-2, 64kbps, 22050, padding, joint stereo
-	data = append(data, make([]byte, 17)...)      // side info
-	data = append(data, xingBlock("Xing", 194, 41000, "LAME3.100", 576, 1000)...)
-	data = append(data, make([]byte, 64)...)
-
-	info, err := Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.MPEGVersion != "2" || info.SampleRate != 22050 || info.ChannelMode != "joint_stereo" {
-		t.Fatalf("format: %+v", info)
-	}
-	if info.FrameSize != 209 { // floor(72*64000/22050)=208 + 1 padding
-		t.Fatalf("frameSize=%d, want 209", info.FrameSize)
-	}
-	if info.Xing == nil || info.Xing.Kind != "xing" || info.LAME == nil || info.LAME.EncPadding != 1000 {
-		t.Fatalf("xing/lame: %+v %+v", info.Xing, info.LAME)
+			info, err := Parse(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.MPEGVersion != tc.version || info.SampleRate != tc.sampleRate || info.Channels != tc.channels || info.ChannelMode != tc.mode {
+				t.Fatalf("format: %+v", info)
+			}
+			if info.BitrateKbps != tc.bitrate || info.FrameSize != tc.frameSize {
+				t.Fatalf("bitrate=%d frameSize=%d, want %d/%d", info.BitrateKbps, info.FrameSize, tc.bitrate, tc.frameSize)
+			}
+			if info.Xing == nil || info.Xing.Kind != tc.kind {
+				t.Fatalf("xing: %+v", info.Xing)
+			}
+			if info.Xing.Frames == nil || *info.Xing.Frames != tc.frames {
+				t.Fatalf("xing frames: %+v", info.Xing.Frames)
+			}
+			if info.Xing.Bytes == nil || *info.Xing.Bytes != tc.bytes || !info.Xing.TOC {
+				t.Fatalf("xing bytes/toc: %+v", info.Xing)
+			}
+			if info.LAME == nil || info.LAME.Encoder != tc.encoder || info.LAME.EncDelay != int(tc.delay) || info.LAME.EncPadding != int(tc.padding) {
+				t.Fatalf("lame: %+v", info.LAME)
+			}
+			if info.ID3v2 != nil || info.ID3v1 || info.VBRI != nil {
+				t.Fatalf("unexpected tags: %+v", info)
+			}
+		})
 	}
 }
 

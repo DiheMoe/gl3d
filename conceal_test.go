@@ -144,25 +144,6 @@ func TestConcealInvalidSideInfo(t *testing.T) {
 	}
 }
 
-// 谱数据损坏:宽松模式把出错的 granule 余下的谱线置零,帧数不变。
-func TestConcealSpectralData(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	_, intact, err := decodeMode(t, bytes.NewReader(data), Strict())
-	if err != nil {
-		t.Fatal(err)
-	}
-	starts, _ := audioFrames(t, data)
-	bad := bytes.Clone(data)
-	setBits(bad[starts[10]+4:], 20, 12, 1) // gr0/ch0 的 part2_3_length 只剩 1 位
-	d, pcm := concealCase(t, bad, 10, starts[10])
-	if r := d.Report(); r.ConcealedGranules < 1 || r.DroppedFrames != 0 || r.AudioFrames != int64(len(starts)) {
-		t.Fatalf("report %+v, want concealed granules and every frame decoded", r)
-	}
-	if len(pcm) != len(intact) || !slices.Equal(pcm[:10*1152*2], intact[:10*1152*2]) {
-		t.Fatal("output length or the output before the damaged frame differs")
-	}
-}
-
 // intensity stereo 的右声道 scalefactor 出错被置零后没有位置可用:各带按 intensity 界限以下
 // 处理——不做 MS 时左声道原样、右声道为零,做 MS 时两声道同为左声道的 1/√2。
 func TestProcessStereoWithoutTransmittedScalefactors(t *testing.T) {

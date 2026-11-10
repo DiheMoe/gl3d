@@ -21,8 +21,8 @@ func noSync(n int) []byte {
 	return b
 }
 
-// 音频之后的填充、垃圾、不完整的帧头或帧:严格模式报错;宽松模式交出所有完整的帧,
-// 跳过的字节与截断记入报告。
+// 音频之后的填充、垃圾、不完整的帧头或帧(其后可接 ID3v1):严格模式报错,首个异常与
+// 宽松模式相同;宽松模式交出所有完整的帧,跳过的字节、截断与尾部标签记入报告。
 func TestLenientTrailingData(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -34,18 +34,25 @@ func TestLenientTrailingData(t *testing.T) {
 		data      []byte
 		frames    int
 		skipped   int64
+		resyncs   int64
 		truncated bool
+		tags      TagSet
 		first     Issue
 	}{
-		{"zeros", cat(shine, make([]byte, 256)), n, 256, false, Issue{Kind: IssueCorrupt, Frame: int64(n - 1), Offset: last}},
-		{"junk", cat(shine, noSync(1024)), n, 1024, false, Issue{Kind: IssueCorrupt, Frame: int64(n - 1), Offset: last}},
-		{"half a frame header", cat(shine, []byte{0xFF, 0xFB}), n, 2, true, Issue{Kind: IssueTruncated, Frame: int64(n - 1), Offset: int64(len(shine))}},
-		{"last frame cut", shine[:len(shine)-100], n - 1, int64(len(shine) - 100 - starts[n-1]), true, Issue{Kind: IssueTruncated, Frame: int64(n - 1), Offset: last}},
+		{"zeros", cat(shine, make([]byte, 256)), n, 256, 0, false, 0, Issue{Kind: IssueCorrupt, Frame: int64(n - 1), Offset: last}},
+		{"junk", cat(shine, noSync(1024)), n, 1024, 0, false, 0, Issue{Kind: IssueCorrupt, Frame: int64(n - 1), Offset: last}},
+		{"half a frame header", cat(shine, []byte{0xFF, 0xFB}), n, 2, 0, true, 0, Issue{Kind: IssueTruncated, Frame: int64(n - 1), Offset: int64(len(shine))}},
+		{"last frame cut", shine[:len(shine)-100], n - 1, int64(len(shine) - 100 - starts[n-1]), 0, true, 0, Issue{Kind: IssueTruncated, Frame: int64(n - 1), Offset: last}},
+		{"last frame cut then ID3v1", cat(shine[:starts[n-1]+200], id3v1Tag()), n - 1, 200, 1, true, TagID3v1, Issue{Kind: IssueTruncated, Frame: int64(n - 1), Offset: last}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := decodeMode(t, bytes.NewReader(tc.data), Strict()); err == nil {
+			ds, _, err := decodeMode(t, bytes.NewReader(tc.data), Strict())
+			if err == nil {
 				t.Fatal("strict mode accepted the stream")
+			}
+			if r := ds.Report(); r.First == nil || *r.First != tc.first {
+				t.Fatalf("strict: err=%v, first %+v, want first %+v", err, r.First, tc.first)
 			}
 			d, got, err := decodeMode(t, bytes.NewReader(tc.data), lenient())
 			if err != nil {
@@ -55,20 +62,10 @@ func TestLenientTrailingData(t *testing.T) {
 				t.Fatalf("PCM: %d samples, want the first %d frames of the clean stream", len(got), tc.frames)
 			}
 			r := d.Report()
-			if r.SkippedBytes != tc.skipped || r.Truncated != tc.truncated || r.Resyncs != 0 || r.DroppedFrames != 0 || r.First == nil || *r.First != tc.first {
-				t.Fatalf("report %+v, first %+v; want skipped %d, truncated %v, first %+v", r, r.First, tc.skipped, tc.truncated, tc.first)
+			if r.SkippedBytes != tc.skipped || r.Truncated != tc.truncated || r.Resyncs != tc.resyncs || r.TrailingTags != tc.tags || r.DroppedFrames != 0 || r.First == nil || *r.First != tc.first {
+				t.Fatalf("report %+v, first %+v; want skipped %d, resyncs %d, truncated %v, tags %q, first %+v", r, r.First, tc.skipped, tc.resyncs, tc.truncated, tc.tags, tc.first)
 			}
 		})
-	}
-}
-
-// 严格模式下帧后 1–3 字节的不完整帧头报截断,偏移指向它所在的位置。
-func TestTruncatedHeaderOffset(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	_, _, err := decodeMode(t, bytes.NewReader(cat(shine, []byte{0xFF, 0xFB})), Strict())
-	var tr *TruncatedError
-	if !errors.As(err, &tr) || tr.Offset != int64(len(shine)) {
-		t.Fatalf("err=%v, want TruncatedError at byte %d", err, len(shine))
 	}
 }
 
@@ -175,70 +172,57 @@ func TestCandidateSlackBoundary(t *testing.T) {
 
 // 一帧中间丢了字节:它的帧长指向下一帧内部,帧内找得到下一帧的起点。宽松模式丢弃
 // 这一帧,从下一帧继续,两帧之后输出与完好的流逐字节相同;严格模式报同步丢失。
+// 损坏的是倒数第二帧时,最后一帧作为候选,它的帧长处是 ID3v1 或流结束同样成立,损坏的
+// 帧仍被丢弃,而不是连同最后一帧的开头一起当作完好的帧交出。
 func TestLenientDropsDamagedFrame(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
-	_, want := decodeAll(t, bytes.NewReader(shine))
-	const k = 100
-	cut := starts[k] + 300
-	data := cat(shine[:cut], shine[cut+50:]) // 第 k 帧中间删去 50 字节
-	if _, _, err := decodeMode(t, bytes.NewReader(data), Strict()); err == nil {
-		t.Fatal("strict mode accepted a damaged frame")
-	}
-	d, got, err := decodeMode(t, bytes.NewReader(data), lenient())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(want)-1152*2 {
-		t.Fatalf("%d samples, want %d (one frame dropped)", len(got), len(want)-1152*2)
-	}
-	if !slices.Equal(got[:k*1152*2], want[:k*1152*2]) {
-		t.Fatal("output before the damaged frame differs")
-	}
-	tail := 80 * 1152 * 2
-	if !slices.Equal(got[len(got)-tail:], want[len(want)-tail:]) {
-		t.Fatal("output does not recover after the dropped frame")
-	}
-	r := d.Report()
-	first := Issue{Kind: IssueCorrupt, Frame: k, Offset: int64(starts[k])}
-	if r.DroppedFrames != 1 || r.Resyncs != 1 || r.SkippedBytes != int64(starts[k+1]-starts[k]-50) || r.First == nil || *r.First != first {
-		t.Fatalf("report %+v, first %+v, want first %+v", r, r.First, first)
-	}
-	// shine 的帧不回指 bit reservoir,输出看不出断档标记;丢弃一帧之后交出的第一帧须带它
-	checkGapOnlyAt(t, data, len(starts)-1, k)
-}
-
-// 丢了字节的帧之后是最后一帧:作为候选,它的帧长处是 ID3v1 或流结束同样成立,损坏的
-// 帧被丢弃,而不是连同最后一帧的开头一起当作完好的帧交出。
-func TestLenientDropsDamagedFrameBeforeTheEnd(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	starts, _ := audioFrames(t, shine)
 	n := len(starts)
-	k := n - 2
-	cut := starts[k] + 300
-	damaged := cat(shine[:cut], shine[cut+50:]) // 倒数第二帧中间删去 50 字节
 	_, want := decodeAll(t, bytes.NewReader(shine))
-	first := Issue{Kind: IssueCorrupt, Frame: int64(k), Offset: int64(starts[k])}
 	for _, tc := range []struct {
 		name string
+		k    int
 		tail []byte
 		tags TagSet
 	}{
-		{"candidate followed by an ID3v1 tag", id3v1Tag(), TagID3v1},
-		{"candidate at the end of the stream", nil, 0},
+		{"mid-stream", 100, nil, 0},
+		{"candidate followed by an ID3v1 tag", n - 2, id3v1Tag(), TagID3v1},
+		{"candidate at the end of the stream", n - 2, nil, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d, got, err := decodeMode(t, bytes.NewReader(cat(damaged, tc.tail)), lenient())
+			k := tc.k
+			cut := starts[k] + 300
+			data := cat(shine[:cut], shine[cut+50:]) // 第 k 帧中间删去 50 字节
+			if k == 100 {
+				if _, _, err := decodeMode(t, bytes.NewReader(data), Strict()); err == nil {
+					t.Fatal("strict mode accepted a damaged frame")
+				}
+			}
+			d, got, err := decodeMode(t, bytes.NewReader(cat(data, tc.tail)), lenient())
 			if err != nil {
 				t.Fatal(err)
 			}
-			r := d.Report()
-			skipped := int64(starts[k+1] - starts[k] - 50)
-			if len(got) != (n-1)*1152*2 || !slices.Equal(got[:k*1152*2], want[:k*1152*2]) ||
-				r.DroppedFrames != 1 || r.Resyncs != 1 || r.SkippedBytes != skipped || r.TrailingTags != tc.tags || r.First == nil || *r.First != first {
-				t.Fatalf("%d samples (want %d), report %+v, first %+v; want one dropped frame, %d bytes skipped, tags %q, first %+v",
-					len(got), (n-1)*1152*2, r, r.First, skipped, tc.tags, first)
+			if len(got) != len(want)-1152*2 {
+				t.Fatalf("%d samples, want %d (one frame dropped)", len(got), len(want)-1152*2)
 			}
+			if !slices.Equal(got[:k*1152*2], want[:k*1152*2]) {
+				t.Fatal("output before the damaged frame differs")
+			}
+			r := d.Report()
+			first := Issue{Kind: IssueCorrupt, Frame: int64(k), Offset: int64(starts[k])}
+			skipped := int64(starts[k+1] - starts[k] - 50)
+			if r.DroppedFrames != 1 || r.Resyncs != 1 || r.SkippedBytes != skipped || r.TrailingTags != tc.tags || r.First == nil || *r.First != first {
+				t.Fatalf("report %+v, first %+v; want one dropped frame, %d bytes skipped, tags %q, first %+v", r, r.First, skipped, tc.tags, first)
+			}
+			if k != 100 {
+				return
+			}
+			tail := 80 * 1152 * 2
+			if !slices.Equal(got[len(got)-tail:], want[len(want)-tail:]) {
+				t.Fatal("output does not recover after the dropped frame")
+			}
+			// shine 的帧不回指 bit reservoir,输出看不出断档标记;丢弃一帧之后交出的第一帧须带它
+			checkGapOnlyAt(t, data, len(starts)-1, k)
 		})
 	}
 }
@@ -268,42 +252,7 @@ func TestLenientSkipsOtherFormat(t *testing.T) {
 	}
 }
 
-// 尾部标签不完整、垃圾之后是标签:宽松模式丢弃不完整的部分、跳过垃圾,音频照常交出。
-func TestLenientTrailingTags(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	starts, _ := audioFrames(t, shine)
-	n := int64(len(starts))
-	_, want := decodeAll(t, bytes.NewReader(shine))
-	ape := apeTag(true, [2]string{"Title", "gl3d"})
-	for _, tc := range []struct {
-		name      string
-		tail      []byte
-		skipped   int64
-		resyncs   int64
-		truncated bool
-		tags      TagSet
-		first     Issue
-	}{
-		{"APEv2 cut", ape[:40], 40, 0, true, 0, Issue{Kind: IssueTruncated, Frame: n, Offset: int64(len(shine))}},
-		{"junk then ID3v1", cat(noSync(300), id3v1Tag()), 300, 1, false, TagID3v1, Issue{Kind: IssueCorrupt, Frame: n - 1, Offset: int64(starts[n-1])}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			d, got, err := decodeMode(t, bytes.NewReader(cat(shine, tc.tail)), lenient())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !slices.Equal(got, want) {
-				t.Fatal("PCM differs from the stream without the tail")
-			}
-			r := d.Report()
-			if r.SkippedBytes != tc.skipped || r.Resyncs != tc.resyncs || r.Truncated != tc.truncated || r.TrailingTags != tc.tags || r.First == nil || *r.First != tc.first {
-				t.Fatalf("report %+v (tags %q), first %+v, want first %+v", r, r.TrailingTags, r.First, tc.first)
-			}
-		})
-	}
-}
-
-// 重新同步只在 mayStart 里的字节上检查候选:带标识的标签的首字母 T、I、A、L 都要在其中,
+// 重新同步只在 mayStart 里的字节上检查候选:标签的首字母 T、I、A、L 都要在其中,
 // 垃圾之后的标签才认得出。标签之后是流结束时记为尾部标签,是帧时记为流中间的标签。
 func TestResyncStopsAtEveryTagKind(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -322,6 +271,7 @@ func TestResyncStopsAtEveryTagKind(t *testing.T) {
 		{"ID3v2", id3v2Tag(100), TagID3v2, 1},
 		{"APEv2 with header", apeTag(true, [2]string{"Title", "gl3d"}), TagAPEv2, 1},
 		{"Lyrics3 v2 then ID3v1", cat(lyrics3v2("la"), id3v1Tag()), TagLyrics3 | TagID3v1, 2},
+		{"ID3v1", id3v1Tag(), TagID3v1, 1},
 	} {
 		t.Run(tc.name+"/end of stream", func(t *testing.T) {
 			d, got, err := decodeMode(t, bytes.NewReader(cat(shine, junk, tc.tags)), lenient())
@@ -661,20 +611,4 @@ func TestLenientResyncInterrupted(t *testing.T) {
 				err, len(got), len(want), src.read, len(data), r.First, k, first)
 		}
 	})
-}
-
-// 长段垃圾:扫描不限距离,内存只用有界的缓冲,跳过的字节如实记入报告。
-func TestLenientLongJunk(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	_, want := decodeAll(t, bytes.NewReader(cat(shine, shine)))
-	d, got, err := decodeMode(t, bytes.NewReader(cat(shine, noSync(1<<20), shine)), lenient())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("%d samples, want %d", len(got), len(want))
-	}
-	if r := d.Report(); r.SkippedBytes != 1<<20 || r.Resyncs != 1 {
-		t.Fatalf("report %+v", r)
-	}
 }

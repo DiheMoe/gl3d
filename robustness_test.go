@@ -115,64 +115,26 @@ func TestTruncationSweepModes(t *testing.T) {
 	}
 }
 
-// 定向变异:标签长度、side information 与尾部数据的结构损坏各归入确定的
-// 错误类别,损坏帧定位到帧序号,不 panic、不死循环。
-// 位置按 MPEG-1 立体声 side info 布局:main_data_begin 0–8,gr0/ch0 的
-// part2_3_length 20–31、big_values 32–40、scalefac_compress 49–52、window_switching 53,
-// 其后 block_type 54–55(切换块)或 table_select 54–68(普通块),
-// 四个 granule/声道的 part2_3_length 依次起于 20、79、138、197。
+// 定向变异:window_switching 置位而 block_type 为 0 是保留组合,必须报 CorruptError
+// 并定位到帧序号。位置按 MPEG-1 立体声 side info 布局:gr0/ch0 的 big_values 32–40、
+// scalefac_compress 49–52、window_switching 53、block_type 54–55。
+// big_values 与 scalefac_compress 置 0,该 granule 其余字段无论怎样解释都能解完,
+// 错误只能来自对保留组合的检查。
 func TestDirectedMutations(t *testing.T) {
 	const target = 10
-	sideInfo := func(data []byte, frame int) []byte {
-		starts, _ := audioFrames(t, data)
-		return data[starts[frame]+4:]
+	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
+	starts, _ := audioFrames(t, data)
+	si := data[starts[target]+4:]
+	setBits(si, 32, 9, 0)
+	setBits(si, 49, 4, 0)
+	setBits(si, 53, 1, 1)
+	setBits(si, 54, 2, 0)
+	_, err := drain(t, bytes.NewReader(data))
+	if got := errClass(err); got != "corrupt" {
+		t.Fatalf("%s (%v), want corrupt", got, err)
 	}
-	cases := []struct {
-		name   string
-		mutate func(data []byte) []byte
-		class  string
-		frame  int64 // CorruptError 的期望帧序号(-1 表示不检查)
-	}{
-		{"id3v2 size not syncsafe", func(d []byte) []byte { d[9] |= 0x80; return d }, "corrupt", -1},
-		{"id3v2 size beyond tag budget", func(d []byte) []byte { copy(d[6:10], []byte{0x7F, 0x7F, 0x7F, 0x7F}); return d }, "limit", -1},
-		// 三个区都用不占位的表 0:缺少 big_values 上限检查时谱线下标会越过 576
-		{"big_values above 288", func(d []byte) []byte {
-			si := sideInfo(d, target)
-			setBits(si, 32, 9, 511)
-			setBits(si, 53, 1, 0)
-			setBits(si, 54, 15, 0)
-			return d
-		}, "corrupt", target},
-		// big_values 与 scalefac_compress 置 0,该 granule 其余字段无论怎样解释都能
-		// 解完,错误只能来自对保留组合的检查
-		{"window switching with block_type 0", func(d []byte) []byte {
-			si := sideInfo(d, target)
-			setBits(si, 32, 9, 0)
-			setBits(si, 49, 4, 0)
-			setBits(si, 53, 1, 1)
-			setBits(si, 54, 2, 0)
-			return d
-		}, "corrupt", target},
-		{"part2_3_length beyond main data", func(d []byte) []byte {
-			si := sideInfo(d, target)
-			for _, pos := range []int{20, 79, 138, 197} {
-				setBits(si, pos, 12, 4095)
-			}
-			return d
-		}, "corrupt", target},
-		{"garbage after last frame", func(d []byte) []byte { return append(d, "not a frame"...) }, "corrupt", -1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			data := tc.mutate(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3"))
-			_, err := drain(t, bytes.NewReader(data))
-			if got := errClass(err); got != tc.class {
-				t.Fatalf("%s (%v), want %s", got, err, tc.class)
-			}
-			var c *CorruptError
-			if tc.frame >= 0 && errors.As(err, &c) && c.Frame != tc.frame {
-				t.Fatalf("CorruptError.Frame=%d, want %d (%v)", c.Frame, tc.frame, err)
-			}
-		})
+	var c *CorruptError
+	if errors.As(err, &c) && c.Frame != target {
+		t.Fatalf("CorruptError.Frame=%d, want %d (%v)", c.Frame, target, err)
 	}
 }

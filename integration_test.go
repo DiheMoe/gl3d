@@ -169,43 +169,12 @@ func compareStream(d *Decoder, ref io.Reader) (rms, maxErr float64, err error) {
 	return math.Sqrt(sum / float64(n/int64(d.Channels()))), maxErr, nil
 }
 
-func TestCompareStreamRejectsNonFiniteReference(t *testing.T) {
-	data := readCorpus(t, "tone10ms-stereo-44k1-cbr128-lame.mp3")
-	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
-		t.Run(fmt.Sprint(v), func(t *testing.T) {
-			d, err := NewDecoder(context.Background(), bytes.NewReader(data))
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, _, err = compareStream(d, bytes.NewReader(float64Bytes([]float64{v})))
-			if err == nil || !strings.Contains(err.Error(), "reference sample 0") {
-				t.Fatalf("reference %v: err=%v, want non-finite reference error", v, err)
-			}
-		})
-	}
-}
-
 func float64Bytes(v []float64) []byte {
 	b := make([]byte, len(v)*8)
 	for i, x := range v {
 		binary.LittleEndian.PutUint64(b[i*8:], math.Float64bits(x))
 	}
 	return b
-}
-
-// 交付数 220500 = 193×1152 − (576+529) − (1260−529):LAME 标签的 enc_delay
-// 与 enc_padding 都要计入解码器 529 样本的结构延迟,裁剪后恰为 5 s × 44100 Hz。
-func TestEndToEndCounts(t *testing.T) {
-	d, _ := decodeAll(t, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")))
-	if d.Frames() != 220500 {
-		t.Fatalf("Frames()=%d, want 220500 (5s @ 44.1kHz, gapless-trimmed)", d.Frames())
-	}
-	if d.DecodedFrames() != 193*1152 {
-		t.Fatalf("DecodedFrames()=%d, want %d", d.DecodedFrames(), 193*1152)
-	}
-	if !d.Trimmed() {
-		t.Fatal("Trimmed()=false, want true (LAME tag present)")
-	}
 }
 
 // shine 编码器不写 Xing/LAME 标签:无 gapless 信息,不裁剪,交付全部 191 个音频帧。

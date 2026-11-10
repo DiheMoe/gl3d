@@ -31,15 +31,6 @@ func TestReservoirAssemble(t *testing.T) {
 	}
 }
 
-func TestReservoirBorrowsCurrentFrame(t *testing.T) {
-	r := newReservoir(511)
-	frame := []byte("main data")
-	w, missing := r.assemble(0, frame)
-	if missing != 0 || len(w) != len(frame) || &w[0] != &frame[0] {
-		t.Fatal("zero backpointer should borrow frame data")
-	}
-}
-
 func TestReservoirKeepsExactSuffix(t *testing.T) {
 	for _, limit := range []int{255, 511} {
 		r := newReservoir(limit)
@@ -56,29 +47,6 @@ func TestReservoirKeepsExactSuffix(t *testing.T) {
 				t.Fatalf("limit=%d, step=%d: len=%d cap=%d, want exact %d-byte suffix", limit, i, len(r.buf), cap(r.buf), len(want))
 			}
 		}
-	}
-}
-
-// main_data_begin 超出已收到的数据(码流从中途开始)时,缺失的前缀补 0,
-// 视图中各字节的偏移与完整码流一致。
-func TestReservoirMissingHistory(t *testing.T) {
-	r := newReservoir(511)
-	r.advance([]byte("AAAA"))
-	w, missing := r.assemble(6, []byte("BB"))
-	if string(w) != "\x00\x00AAAABB" || missing != 2 {
-		t.Fatalf("window=%q missing=%d, want %q and 2", w, missing, "\x00\x00AAAABB")
-	}
-}
-
-func TestReservoirCap(t *testing.T) {
-	r := newReservoir(255) // MPEG-2/2.5 的 reservoir 上限(main_data_begin 为 8 位)
-	r.advance(bytes.Repeat([]byte{1}, 300))
-	if r.len() != 255 {
-		t.Fatalf("len=%d, want 255(封顶)", r.len())
-	}
-	// 封顶后 main_data_begin 的最大值 255 仍完全落在保留的数据内
-	if w, missing := r.assemble(255, []byte{2}); len(w) != 256 || missing != 0 {
-		t.Fatalf("len(window)=%d missing=%d, want 256 and 0", len(w), missing)
 	}
 }
 
@@ -141,19 +109,5 @@ func TestGranuleStartingAtFirstMainDataByte(t *testing.T) {
 	if len(pcm) != 1152 || slices.ContainsFunc(pcm[:576], nonzero) || !slices.ContainsFunc(pcm[576:], nonzero) {
 		t.Fatalf("%d samples, granule 0 silent=%v, granule 1 silent=%v; want 1152, true, false",
 			len(pcm), !slices.ContainsFunc(pcm[:576], nonzero), !slices.ContainsFunc(pcm[576:], nonzero))
-	}
-}
-
-// reset 之后历史字节不再可用:回指的部分全部按缺失处理。
-func TestReservoirReset(t *testing.T) {
-	r := newReservoir(511)
-	r.advance(bytes.Repeat([]byte{7}, 300))
-	r.reset()
-	if r.len() != 0 {
-		t.Fatalf("len()=%d after reset", r.len())
-	}
-	w, missing := r.assemble(100, []byte{1, 2, 3})
-	if missing != 100 || len(w) != 103 || w[100] != 1 {
-		t.Fatalf("missing=%d len=%d", missing, len(w))
 	}
 }

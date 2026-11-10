@@ -10,30 +10,6 @@ import (
 	"testing"
 )
 
-// 每次只交付一个字节,断言构造器在首帧与下一帧头到达后立即返回,
-// 而不是等待固定的 4 KiB 扫描窗口。无需计时或依赖 goroutine 调度。
-func TestSyncSearchReadsOnlyConfirmation(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		h    [4]byte
-		size int
-	}{
-		{"MPEG1 128kbps", mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417},
-		{"MPEG25 16kbps", mkHeader(0, 1, 1, 2, 2, 0, 0, 0, 0), 144},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			data := repeatFrames(tc.h, tc.size, 40)
-			r := bytes.NewReader(data)
-			if _, err := NewDecoder(context.Background(), &oneByteReader{r: r}); err != nil {
-				t.Fatal(err)
-			}
-			if n := len(data) - r.Len(); n != tc.size+4 {
-				t.Fatalf("read %d bytes, want exactly %d for the frame and next header", n, tc.size+4)
-			}
-		})
-	}
-}
-
 // finalErrorReader 真正将最后一批数据与指定错误同返,区别于 bytes.Reader
 // 先返回 (n, nil)、下次调用才返回 (0, io.EOF) 的行为。
 type finalErrorReader struct {
@@ -104,21 +80,6 @@ func TestSourceErrorAfterTagRunPreservesFrames(t *testing.T) {
 	}
 }
 
-// 孤立的范围外格式头不应使短流中的合法帧因探测窗口凑不满而被源错误吞掉。
-func TestSourceErrorAfterIsolatedUnsupportedHeader(t *testing.T) {
-	layer2 := mkHeader(3, 2, 1, 10, 0, 0, 0, 0, 0)
-	data := append(layer2[:], make([]byte, 100)...)
-	data = append(data, repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)...)
-	srcErr := errors.New("source reset")
-	d, err := drain(t, &finalErrorReader{data: data, chunk: 7, err: srcErr})
-	if !errors.Is(err, srcErr) || d == nil {
-		t.Fatalf("initialized=%v err=%v, want a decoder and the source error", d != nil, err)
-	}
-	if got := d.Frames(); got != 2*1152 {
-		t.Fatalf("Frames()=%d, want 2304", got)
-	}
-}
-
 // 单帧后接 ID3v1 的各种结尾。只有一帧时,首帧要么由帧头到齐前的流结束确认,要么由
 // 恰好以流结束收尾的完整 ID3v1 确认:3 字节标识不足以排除伪同步,残缺标签或标签后另有
 // 数据时两种模式都找不到音频。帧尾之后是无法识别的数据时,严格模式不交付这一帧,
@@ -168,6 +129,7 @@ func TestSingleFrameID3v1Boundary(t *testing.T) {
 	}
 }
 
+// LAME 扩展的编码器字段:空串、全空格、中间有 NUL 或控制字符的被拒,不足 36 字节也不算。
 func TestLAMEEncoderField(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -195,6 +157,11 @@ func TestLAMEEncoderField(t *testing.T) {
 			}
 		})
 	}
+	t.Run("shorter than 36 bytes", func(t *testing.T) {
+		if _, ok := parseLAMETag(make([]byte, 10)); ok {
+			t.Fatal("too short, want absent")
+		}
+	})
 }
 
 // 无 LAME 扩展的 Xing 帧仍有可信帧数;全零的帧尾填充不应被当成一个

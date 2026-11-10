@@ -19,8 +19,6 @@ func newReservoir(max int) *reservoir {
 	}
 }
 
-func (r *reservoir) len() int { return len(r.buf) }
-
 // assemble 返回该帧完整 main_data 视图:reservoir 尾部 mainDataBegin 字节起,
 // 接上当前帧自带的 main 字节;视图只保证在本帧解码期间有效,要求 frameMain
 // 在此期间保持有效且不变。无回指时直接借用 frameMain。码流从中途开始时

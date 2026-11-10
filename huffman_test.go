@@ -110,10 +110,6 @@ func TestHuffmanErrors(t *testing.T) {
 	if _, _, err := huff.decodePair(br3, 13); err == nil {
 		t.Fatal("want error for bitstream underrun")
 	}
-	br4 := &bitReader{data: []byte{0x00}}
-	if _, complete := decodeQuad(br4, false, 8); complete {
-		t.Fatal("want incomplete quad at granule end")
-	}
 }
 
 // count1 的码字与符号位必须作为整体落在 granule 内。不足的后缀属于

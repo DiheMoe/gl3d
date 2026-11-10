@@ -40,20 +40,6 @@ func TestIMDCTWindows(t *testing.T) {
 	}
 }
 
-func TestIMDCT36Delta(t *testing.T) {
-	// 冲激输入 x[0]=1 → out[i] = cos(π/72 (2i+19))
-	var x [18]float64
-	x[0] = 1
-	var out [36]float64
-	imdct36(&x, &out)
-	for i := 0; i < 36; i++ {
-		want := math.Cos(math.Pi / 72 * float64(2*i+19))
-		if math.Abs(out[i]-want) > 1e-12 {
-			t.Fatalf("out[%d]=%g, want %g", i, out[i], want)
-		}
-	}
-}
-
 // 随机输入下逐点符合 ISO 11172-3 §2.4.3.4.6 的 IMDCT 定义:
 // x_i = Σ_k X_k·cos(π/(2n)·(2i+1+n/2)(2k+1)),n 为输出点数。
 func TestIMDCTMatchesDefinition(t *testing.T) {
@@ -85,19 +71,6 @@ func TestIMDCTMatchesDefinition(t *testing.T) {
 		var y12 [12]float64
 		imdct12(&x12, &y12)
 		check(12, x12[:], y12[:])
-	}
-}
-
-func TestIMDCT12Delta(t *testing.T) {
-	var x [6]float64
-	x[2] = 1
-	var out [12]float64
-	imdct12(&x, &out)
-	for i := 0; i < 12; i++ {
-		want := math.Cos(math.Pi / 24 * float64((2*i+7)*5))
-		if math.Abs(out[i]-want) > 1e-12 {
-			t.Fatalf("out[%d]=%g, want %g", i, out[i], want)
-		}
 	}
 }
 

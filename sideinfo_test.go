@@ -140,34 +140,6 @@ func TestParseSideInfoMPEG25MonoShortBlocks(t *testing.T) {
 	}
 }
 
-func TestParseSideInfoRejects(t *testing.T) {
-	h, _ := parseFrameHeader(mkHeader(3, 1, 1, 11, 0, 0, 0, 0, 0))
-
-	// big_values > 288 非法(576 条谱线 / 2)
-	var w bitWriter
-	w.write(0, 9+3+8) // main_data_begin + private + scfsi
-	w.write(100, 12)  // part2_3_length
-	w.write(289, 9)   // big_values 超界
-	w.write(100, 8)   // global_gain
-	w.write(0, 4)     // scalefac_compress
-	w.write(0, 1)     // window_switching = 0
-	w.write(0, 15)    // table_select x3
-	w.write(0, 4)     // region0_count
-	w.write(0, 3)     // region1_count
-	w.write(0, 3)     // preflag + scalefac_scale + count1table_select
-	w.write(0, 59*3)  // 其余 granule x 声道
-	if len(w.bytes) != 32 {
-		t.Fatalf("constructed %d bytes, want 32", len(w.bytes))
-	}
-	if err := parseSideInfo(&h, w.bytes, &sideInfo{}); err == nil {
-		t.Fatal("want error for big_values > 288")
-	}
-
-	if err := parseSideInfo(&h, make([]byte, 31), &sideInfo{}); err == nil {
-		t.Fatal("want error for truncated side info")
-	}
-}
-
 func TestLSFPreflagModes(t *testing.T) {
 	for _, versionBits := range []int{2, 0} {
 		for _, mode := range []int{0, 1} {

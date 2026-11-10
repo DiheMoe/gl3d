@@ -148,29 +148,19 @@ func TestVariantsClass1(t *testing.T) {
 	}
 }
 
-// 固定每个变体的严格模式结果类别;严格模式成功当且仅当宽松模式的报告干净,此时两者
-// 输出相同。每个变体还要通过跨模式的完整判定(streamOnce):整体与分块读取一致,模式
-// 等价,宽松模式不以截断或损坏结束。
+// 固定每个变体的严格模式结果类别。每个变体还要通过跨模式的完整判定(streamOnce):
+// 整体与分块读取一致,模式等价(严格模式成功当且仅当宽松模式的报告干净,此时输出相同),
+// 宽松模式不以截断或损坏结束。
 func TestVariantsStrict(t *testing.T) {
 	for _, v := range loadVariants(t) {
 		t.Run(v.Name, func(t *testing.T) {
 			skipHugeInShort(t, v)
 			data := variantBytes(t, v)
-			_, sp, serr := decodeVariant(t, data, Strict())
-			if got := errClass(serr); got != v.Expect.Strict {
-				t.Errorf("strict class %s (%v), want %s", got, serr, v.Expect.Strict)
-			}
-			d, lp, lerr := decodeVariant(t, data, lenient())
-			if lerr != nil {
-				t.Fatalf("lenient: %v", lerr)
-			}
-			if clean := d.Report().Clean(); (serr == nil) != clean {
-				t.Errorf("strict ok %v, lenient report clean %v", serr == nil, clean)
-			}
-			if serr == nil && !slices.Equal(sp, lp) {
-				t.Error("strict and lenient output differ although both succeed")
-			}
-			withLimits(t, func() { streamOnce(t, data) })
+			withLimits(t, func() {
+				if got := streamOnce(t, data)[0].class; got != v.Expect.Strict {
+					t.Errorf("strict class %s, want %s", got, v.Expect.Strict)
+				}
+			})
 		})
 	}
 }

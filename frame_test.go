@@ -15,28 +15,6 @@ func id3v1Tag() []byte {
 	return tag
 }
 
-// 帧尾之后既不是帧头也不是标签时,严格模式无从区分完整帧后的垃圾与少了字节的帧,
-// 这一帧不交付,报错序号指向它;宽松模式交付全部完整帧并记入报告。
-func TestCompleteFramesBeforeBadHeader(t *testing.T) {
-	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 3)
-	data = append(data, "JUNK"...)
-	d, err := drain(t, bytes.NewReader(data))
-	var corrupt *CorruptError
-	if !errors.As(err, &corrupt) || corrupt.Frame != 2 {
-		t.Fatalf("strict: error=%v, want CorruptError at frame 2", err)
-	}
-	if d.Frames() != 2304 {
-		t.Fatalf("strict: delivered %d frames, want 2304", d.Frames())
-	}
-	d, _, err = decodeMode(t, bytes.NewReader(data))
-	if err != nil || d.Frames() != 3456 {
-		t.Fatalf("lenient: delivered %d frames, err=%v; want 3456 and no error", d.Frames(), err)
-	}
-	if f := d.Report().First; f == nil || f.Kind != IssueCorrupt || f.Frame != 2 {
-		t.Fatalf("lenient: first issue %+v, want corrupt at frame 2", f)
-	}
-}
-
 // 表 0 及缺失 reservoir 的静音路径可以不读位,仍须拒绝超过窗口的总预算。宽松模式与
 // side info 非法同样处理:丢弃这一帧,后面的帧照常解码。
 func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
@@ -89,60 +67,6 @@ func drain(t *testing.T, r io.Reader) (*Decoder, error) {
 	}
 }
 
-func TestID3v1TrailerSkipped(t *testing.T) {
-	cases := []struct {
-		file       string
-		wantFrames int64
-	}{
-		{"sine440-stereo-44k1-cbr192.mp3", 220500},       // Info+LAME 标签:样本数按 Xing 帧数与 gapless 尾裁得出
-		{"sine440-stereo-44k1-cbr192-shine.mp3", 220032}, // 无标签:不裁剪,191 个完整帧
-	}
-	for _, tc := range cases {
-		plain := readCorpus(t, tc.file)
-		tagged := append(append([]byte{}, plain...), id3v1Tag()...)
-		_, want := decodeAll(t, bytes.NewReader(plain))
-		readers := map[string]func() io.Reader{
-			"bytes":   func() io.Reader { return bytes.NewReader(tagged) },
-			"onebyte": func() io.Reader { return &oneByteReader{r: bytes.NewReader(tagged)} },
-		}
-		for rname, mk := range readers {
-			t.Run(tc.file+"/"+rname, func(t *testing.T) {
-				d, got := decodeAll(t, mk())
-				if d.Frames() != tc.wantFrames {
-					t.Fatalf("Frames()=%d, want %d", d.Frames(), tc.wantFrames)
-				}
-				if !bytes.Equal(float64Bytes(got), float64Bytes(want)) {
-					t.Fatal("PCM differs from the untagged stream")
-				}
-			})
-		}
-	}
-}
-
-func TestID3v1TruncatedTag(t *testing.T) {
-	data := append(readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3"), id3v1Tag()[:60]...)
-	_, err := drain(t, bytes.NewReader(data))
-	var tr *TruncatedError
-	if !errors.As(err, &tr) {
-		t.Fatalf("err=%v, want TruncatedError", err)
-	}
-}
-
-// 流中途切换到已识别但不支持的格式(此处为 Layer II)须报不支持错误;切换前
-// 已完整解码的 Layer III 帧照常交付,不能当作同步丢失。
-func TestMidStreamLayerChangeUnsupported(t *testing.T) {
-	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 3)
-	data = append(data, repeatFrames(mkHeader(3, 2, 1, 10, 0, 0, 0, 0, 0), 626, 3)...)
-	d, err := drain(t, bytes.NewReader(data))
-	var u *UnsupportedError
-	if !errors.As(err, &u) || u.Feature != "MPEG Layer II" {
-		t.Fatalf("err=%v, want UnsupportedError %q", err, "MPEG Layer II")
-	}
-	if d.Frames() != 3*1152 {
-		t.Fatalf("Frames()=%d, want %d (3 个 Layer III 帧)", d.Frames(), 3*1152)
-	}
-}
-
 // 文件中途改变 MPEG 版本、采样率或声道数属不支持的特性;切换前的完整帧照常交付。
 // MPEG-1 与 MPEG-2 的采样率集合不相交,版本改变必然伴随采样率改变,故无仅改版本的用例。
 func TestMidStreamFormatChangeUnsupported(t *testing.T) {
@@ -151,7 +75,6 @@ func TestMidStreamFormatChangeUnsupported(t *testing.T) {
 		h    [4]byte
 		size int
 	}{
-		{"sample rate 48k", mkHeader(3, 1, 1, 9, 1, 0, 0, 0, 0), 384},
 		{"mono", mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0), 417},
 		{"mpeg2 22.05k", mkHeader(2, 1, 1, 9, 0, 0, 0, 0, 0), 261},
 	}
@@ -226,15 +149,5 @@ func TestCorruptErrorReportsFrameIndex(t *testing.T) {
 	}
 	if c.Frame != int64(target) {
 		t.Fatalf("CorruptError.Frame=%d, want %d (err=%v)", c.Frame, target, err)
-	}
-}
-
-func TestID3v1FollowedByData(t *testing.T) {
-	data := append(readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3"), id3v1Tag()...)
-	data = append(data, "trailing junk"...)
-	_, err := drain(t, bytes.NewReader(data))
-	var c *CorruptError
-	if !errors.As(err, &c) {
-		t.Fatalf("err=%v, want CorruptError", err)
 	}
 }

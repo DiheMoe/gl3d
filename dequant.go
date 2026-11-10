@@ -48,20 +48,6 @@ func srSfbRow(v mpegVersion, srIdx int) int {
 	return r
 }
 
-// sfbBounds 把带宽行展开为边界数组(0 起 576 止),遇零宽度哨兵结束。
-func sfbBounds(widths []uint8) []int {
-	b := []int{0}
-	sum := 0
-	for _, w := range widths {
-		if w == 0 {
-			break
-		}
-		sum += int(w)
-		b = append(b, sum)
-	}
-	return b
-}
-
 // bandMap 是 granule 的谱线到 scalefactor 带/窗口/区域的映射。
 type bandMap struct {
 	scfIdx   [576]int // 谱线 → scalefactor 下标

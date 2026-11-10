@@ -81,17 +81,10 @@ type lsfFormat struct {
 	versionBits int // 0 = MPEG-2.5,2 = MPEG-2
 	srIdx       int
 	frameSize   int // 72·码率(kbps)/采样率(kHz) 取整
-	brIdx       int // bitrate_index:8 = 64 kbps,9 = 80 kbps(LSF Layer III)
 }
 
-var (
-	fmt8000  = lsfFormat{0, 2, 576, 8}
-	fmt11025 = lsfFormat{0, 0, 417, 8}
-	fmt12000 = lsfFormat{0, 1, 384, 8}
-	fmt16000 = lsfFormat{2, 2, 288, 8}
-	fmt22050 = lsfFormat{2, 0, 208, 8}
-	fmt24000 = lsfFormat{2, 1, 240, 9} // 64 kbps 的帧长 192 字节,放不下全部谱线
-)
+// 帧头一律用 bitrate_index 8(64 kbps)。
+var fmt8000 = lsfFormat{0, 2, 576}
 
 // buildLSFStream 按 f 的帧头构造 LSF Layer III 帧序列,帧尾补零。g.sfc 为 0 时
 // scalefac_compress 为 0(四段 slen 全为 0,不传 scalefactor,preflag 为 0);
@@ -161,7 +154,7 @@ func buildLSFStream(t *testing.T, f lsfFormat, frames []g8) []byte {
 		if si.nbits != 72 {
 			t.Fatalf("frame %d: side info is %d bits, want 72", i, si.nbits)
 		}
-		h := mkHeader(f.versionBits, 1, 1, f.brIdx, f.srIdx, 0, 3, 0, 0)
+		h := mkHeader(f.versionBits, 1, 1, 8, f.srIdx, 0, 3, 0, 0)
 		frame := append(append(h[:], si.bytes...), md.bytes...)
 		if len(frame) > f.frameSize {
 			t.Fatalf("frame %d needs %d bytes, have %d", i, len(frame), f.frameSize)
@@ -314,8 +307,8 @@ func probeFrames(pc probeClass, split int) []g8 {
 	return out
 }
 
-// 混合块的 region0 止于长块区上端(8 kHz 为 72,其余为 36),与 FFmpeg 相同;纯短块与
-// 起始/结束块不变。
+// 8 kHz 混合块的 region0 止于长块区上端(72),与 FFmpeg 相同;纯短块与起始/结束块
+// 由解析隐含的 region0_count 决定。其余采样率的 36 见 TestRegionBoundsSwitched。
 func TestRegion0Boundary(t *testing.T) {
 	for _, tc := range []struct {
 		pc probeClass
@@ -324,26 +317,19 @@ func TestRegion0Boundary(t *testing.T) {
 		{probeClass{"8k_2m", fmt8000, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 72},
 		{probeClass{"8k_2", fmt8000, strings.Fields("0 0 1 2 2 2 2 2 3 0"), []string{"2"}}, 72},
 		{probeClass{"8k_13m", fmt8000, strings.Fields("0 1m 3m 1m 3m 0 0 1m 3m 0"), []string{"1m", "3m"}}, 108},
-		{probeClass{"11k_2m", fmt11025, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 36},
-		{probeClass{"12k_2m", fmt12000, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 36},
-		{probeClass{"16k_2m", fmt16000, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 36},
-		{probeClass{"22k_2m", fmt22050, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 36},
-		{probeClass{"24k_2m", fmt24000, strings.Fields("0 0 1 2m 2m 2m 2m 2m 3 0"), []string{"2m"}}, 36},
 	} {
-		for _, m := range bothModes {
-			t.Run(tc.pc.name+"/"+m.name, func(t *testing.T) {
-				_, base, err := decodeMode(t, bytes.NewReader(buildLSFStream(t, tc.pc.format, probeFrames(tc.pc, -1))), m.opts...)
-				if err != nil {
-					t.Fatal("base:", err)
-				}
-				_, probe, err := decodeMode(t, bytes.NewReader(buildLSFStream(t, tc.pc.format, probeFrames(tc.pc, tc.p))), m.opts...)
-				if err != nil {
-					t.Fatalf("switch at line %d: %v", tc.p, err)
-				}
-				if !slices.Equal(probe, base) {
-					t.Fatalf("switch at line %d does not reproduce the base output", tc.p)
-				}
-			})
-		}
+		t.Run(tc.pc.name, func(t *testing.T) {
+			_, base, err := decodeMode(t, bytes.NewReader(buildLSFStream(t, tc.pc.format, probeFrames(tc.pc, -1))))
+			if err != nil {
+				t.Fatal("base:", err)
+			}
+			_, probe, err := decodeMode(t, bytes.NewReader(buildLSFStream(t, tc.pc.format, probeFrames(tc.pc, tc.p))))
+			if err != nil {
+				t.Fatalf("switch at line %d: %v", tc.p, err)
+			}
+			if !slices.Equal(probe, base) {
+				t.Fatalf("switch at line %d does not reproduce the base output", tc.p)
+			}
+		})
 	}
 }

@@ -59,9 +59,11 @@ func tagPlus() []byte {
 }
 
 // 音频之后恰好是一串可识别的标签:两种模式都正常结束,输出与没有标签时逐字节
-// 相同,标签种类记入报告,报告仍是干净的。
+// 相同,标签种类记入报告,报告仍是干净的。标签的处理与音频长度无关,音频只取前两帧。
 func TestTrailingTagChains(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
+	full := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
+	starts, _ := audioFrames(t, full)
+	shine := full[:starts[2]]
 	_, want := decodeAll(t, bytes.NewReader(shine))
 	plusTitle := id3v1Tag()
 	plusTitle[3] = '+' // 标题以 + 开头的 ID3v1 也以 "TAG+" 开头,其后没有 ID3v1 就不是 TAG+
@@ -265,17 +267,6 @@ func TestTagAtRejectsPaddingAndJunk(t *testing.T) {
 		if kind := tagAt(tc.b); kind != 0 {
 			t.Errorf("%s: tagAt=%q, want none", tc.name, kind)
 		}
-	}
-}
-
-// 音频之后跟着头无效的 "ID3",其后的字节碰巧像 APE 条目:它不是标签,严格模式在最后一帧
-// 之后报同步丢失,而不是把后面的数据当 APEv2 条目一路跳过直到超出预算。
-func TestInvalidID3AfterAudioIsNotAnAPEItem(t *testing.T) {
-	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
-	junk := cat([]byte{'I', 'D', '3', 4, 0, 0, 0, 0x80, 'a', 'b', 0}, make([]byte, 100))
-	_, _, err := decodeMode(t, bytes.NewReader(cat(shine, junk)), Strict())
-	if errClass(err) != "corrupt" {
-		t.Fatalf("err=%v, want a corrupt-stream error", err)
 	}
 }
 

@@ -38,16 +38,24 @@ func decodeMode(t *testing.T, r io.Reader, opts ...Option) (*Decoder, []float64,
 	}
 }
 
-// 选项按传入顺序生效,后者覆盖前者;nil 选项被忽略,结果与不传选项相同。
+// 选项按传入顺序生效,后者覆盖前者;nil 选项被忽略,不传选项即宽松模式。模式用
+// 可观察的行为判定:音频之后的垃圾在宽松模式下跳过并记入报告,在严格模式下报 CorruptError。
 func TestOptionsApplyInOrder(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
+	data := cat(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3"), noSync(300))
 	strictOf := func(t *testing.T, opts ...Option) bool {
 		t.Helper()
-		d, err := NewDecoder(context.Background(), bytes.NewReader(data), opts...)
-		if err != nil {
-			t.Fatal(err)
+		d, pcm, err := decodeMode(t, bytes.NewReader(data), opts...)
+		var c *CorruptError
+		if errors.As(err, &c) {
+			return true
 		}
-		return d.fr.strict
+		if err != nil {
+			t.Fatalf("err=%v, want nil or CorruptError", err)
+		}
+		if rep := d.Report(); len(pcm) != 220500*2 || rep.Clean() || rep.First.Kind != IssueCorrupt {
+			t.Fatalf("delivered %d samples, report %+v", len(pcm), rep)
+		}
+		return false
 	}
 	for _, tc := range []struct {
 		name   string
@@ -60,35 +68,12 @@ func TestOptionsApplyInOrder(t *testing.T) {
 		{"lenient then Strict", []Option{lenient(), Strict()}, true},
 		{"Strict then lenient", []Option{Strict(), lenient()}, false},
 		{"Strict then nil", []Option{Strict(), nil}, true}, // nil 不重置此前的选项
+		{"nil only", []Option{nil}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := strictOf(t, tc.opts...); got != tc.strict {
 				t.Fatalf("strict=%v, want %v", got, tc.strict)
 			}
 		})
-	}
-	t.Run("nil option", func(t *testing.T) {
-		if got, want := strictOf(t, []Option{nil}...), strictOf(t); got != want {
-			t.Fatalf("strict=%v with a nil option, %v without options", got, want)
-		}
-	})
-}
-
-// 不传选项即宽松模式:音频之后的垃圾跳过并记入报告,不终止解码;传 Strict() 则报
-// CorruptError。
-func TestDefaultModeIsLenient(t *testing.T) {
-	data := cat(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3"), noSync(300))
-	d, pcm, err := decodeMode(t, bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("default mode: %v", err)
-	}
-	rep := d.Report()
-	if len(pcm) != 220500*2 || rep.Clean() || rep.First.Kind != IssueCorrupt {
-		t.Fatalf("default mode delivered %d samples, report %+v", len(pcm), rep)
-	}
-	_, _, err = decodeMode(t, bytes.NewReader(data), Strict())
-	var c *CorruptError
-	if !errors.As(err, &c) {
-		t.Fatalf("Strict(): err=%v, want CorruptError for trailing garbage", err)
 	}
 }

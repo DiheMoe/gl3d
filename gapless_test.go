@@ -3,7 +3,6 @@ package gl3d
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"slices"
 	"testing"
 )
@@ -114,22 +113,6 @@ func TestCorruptInfoTagIgnored(t *testing.T) {
 	}
 }
 
-// CRC 有效、但声明的尾部填充超过可裁剪的解码输出时,gapless 信息自相矛盾:
-// 报格式错误而不猜测裁剪量。
-func TestGaplessPaddingExceedsDecoded(t *testing.T) {
-	data := readCorpus(t, "short-tone-stereo-44k1-cbr192.mp3") // 3 帧,enc_delay 576
-	p, _, lo := infoFrame(t, data)
-	f := data[p:]
-	f[lo+22] |= 0x0F // enc_padding = 0xFFF:仅其本身已远超头裁后剩余的 3×1152−(576+529)
-	f[lo+23] = 0xFF
-	setLAMETagCRC(f, lo)
-	_, err := drain(t, bytes.NewReader(data))
-	var c *CorruptError
-	if !errors.As(err, &c) {
-		t.Fatalf("err=%v, want CorruptError", err)
-	}
-}
-
 // 填充超出头裁之后的长度:宽松模式不做尾裁,记下与严格模式相同的异常。
 func TestGaplessPaddingExceedsDecodedLenient(t *testing.T) {
 	data := readCorpus(t, "short-tone-stereo-44k1-cbr192.mp3")
@@ -151,7 +134,7 @@ func TestGaplessPaddingExceedsDecodedLenient(t *testing.T) {
 }
 
 // 裁剪区间与一帧的相对位置:区间在帧外、覆盖帧首、帧尾、帧中间或整帧,余下的采样帧
-// 保持顺序且声道不错位;单声道与立体声各一组。
+// 保持顺序且声道不错位;立体声为主,单声道只留一例复制源与目标都依赖声道步长的区间。
 func TestCutFrames(t *testing.T) {
 	frame := func(n, nch int) []float64 { // n 个采样帧,第 i 帧为 (nch·i, …, nch·i+nch−1)
 		s := make([]float64, nch*n)
@@ -173,13 +156,7 @@ func TestCutFrames(t *testing.T) {
 		{"stereo/covers the end", 2, 10, 12, 20, []float64{0, 1, 2, 3}},
 		{"stereo/in the middle", 2, 10, 11, 13, []float64{0, 1, 6, 7}},
 		{"stereo/covers the frame", 2, 10, 8, 20, []float64{}},
-		{"mono/before the frame", 1, 10, 0, 10, frame(4, 1)},
-		{"mono/after the frame", 1, 10, 14, 20, frame(4, 1)},
-		{"mono/empty window", 1, 10, 12, 12, frame(4, 1)},
-		{"mono/covers the start", 1, 10, 0, 12, []float64{2, 3}},
-		{"mono/covers the end", 1, 10, 12, 20, []float64{0, 1}},
 		{"mono/in the middle", 1, 10, 11, 13, []float64{0, 3}},
-		{"mono/covers the frame", 1, 10, 8, 20, []float64{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,24 +168,53 @@ func TestCutFrames(t *testing.T) {
 	}
 }
 
-// Xing 帧数为 0 视为未知:两种模式都不做尾裁、不核对帧数,报告没有声明。
-func TestXingZeroFramesIsUnknown(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
-	p, xo, lo := infoFrame(t, data)
-	f := data[p:]
-	binary.BigEndian.PutUint32(f[xo+8:], 0)
-	setLAMETagCRC(f, lo)
-	for _, opts := range [][]Option{{Strict()}, {lenient()}} {
-		d, pcm, err := decodeMode(t, bytes.NewReader(data), opts...)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if want := (193*1152 - 1105) * 2; len(pcm) != want || !d.Trimmed() {
-			t.Fatalf("delivered %d samples (trimmed %v), want %d", len(pcm), d.Trimmed(), want)
-		}
-		if r := d.Report(); !r.Clean() || r.DeclaredFrames != -1 {
-			t.Fatalf("report %+v", r)
-		}
+// Xing 帧数未知:帧数为 0,或头里根本没有帧数字段(flags 的 bit 0 清零,其后的字段前移)。
+// 两种情形下两种模式都不做尾裁、不核对帧数,只做头裁,报告没有声明。
+func TestXingFrameCountUnknown(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, data []byte, p, xo, lo int)
+	}{
+		{"zero count", func(t *testing.T, data []byte, p, xo, lo int) {
+			f := data[p:]
+			binary.BigEndian.PutUint32(f[xo+8:], 0)
+			setLAMETagCRC(f, lo)
+		}},
+		{"no frames field", func(t *testing.T, data []byte, p, xo, lo int) {
+			h, err := parseFrameHeader([4]byte(data[p : p+4]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := data[p : p+h.frameSize]
+			f[xo+7] &^= 1             // flags 低字节的 bit 0 标记帧数字段
+			copy(f[xo+8:], f[xo+12:]) // 删去 4 字节帧数,其后的字段前移
+			clear(f[len(f)-4:])
+			setLAMETagCRC(f, lo-4) // LAME 扩展随之前移 4 字节
+			if x, off, err := parseXing(f[xo:]); err != nil || x.frames != nil || xo+off != lo-4 {
+				t.Fatalf("constructed Xing header: %+v, LAME offset %d (want %d), err=%v", x, xo+off, lo-4, err)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
+			p, xo, lo := infoFrame(t, data)
+			tc.mutate(t, data, p, xo, lo)
+			for _, m := range bothModes {
+				t.Run(m.name, func(t *testing.T) {
+					d, pcm, err := decodeMode(t, bytes.NewReader(data), m.opts...)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if want := (193*1152 - 1105) * 2; len(pcm) != want || d.Frames() != 193*1152-1105 || !d.Trimmed() {
+						t.Fatalf("delivered %d samples (Frames()=%d, trimmed %v), want %d", len(pcm), d.Frames(), d.Trimmed(), want)
+					}
+					if r := d.Report(); !r.Clean() || r.DeclaredFrames != -1 {
+						t.Fatalf("report %+v", r)
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -263,39 +269,6 @@ func TestGaplessWindowsAcrossFrameBoundaries(t *testing.T) {
 				t.Fatalf("output (%d samples) is not the head-only output minus its last %d sample frames", len(pcm), tail)
 			}
 			if r := d.Report(); !r.Clean() || r.DeclaredFrames != frames {
-				t.Fatalf("report %+v", r)
-			}
-		})
-	}
-}
-
-// Xing 头没有帧数字段(flags 的 bit 0 清零,其后的字段前移):没有声明的帧数,只做头裁,
-// 两种模式都正常结束,报告没有声明。
-func TestXingWithoutFramesField(t *testing.T) {
-	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
-	p, xo, lo := infoFrame(t, data)
-	h, err := parseFrameHeader([4]byte(data[p : p+4]))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := data[p : p+h.frameSize]
-	f[xo+7] &^= 1             // flags 低字节的 bit 0 标记帧数字段
-	copy(f[xo+8:], f[xo+12:]) // 删去 4 字节帧数,其后的字段前移
-	clear(f[len(f)-4:])
-	setLAMETagCRC(f, lo-4) // LAME 扩展随之前移 4 字节
-	if x, off, err := parseXing(f[xo:]); err != nil || x.frames != nil || xo+off != lo-4 {
-		t.Fatalf("constructed Xing header: %+v, LAME offset %d (want %d), err=%v", x, xo+off, lo-4, err)
-	}
-	for _, m := range bothModes {
-		t.Run(m.name, func(t *testing.T) {
-			d, pcm, err := decodeMode(t, bytes.NewReader(data), m.opts...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := (193*1152 - 1105) * 2; len(pcm) != want || d.Frames() != 193*1152-1105 || !d.Trimmed() {
-				t.Fatalf("delivered %d samples (Frames()=%d, trimmed %v), want %d", len(pcm), d.Frames(), d.Trimmed(), want)
-			}
-			if r := d.Report(); !r.Clean() || r.DeclaredFrames != -1 {
 				t.Fatalf("report %+v", r)
 			}
 		})

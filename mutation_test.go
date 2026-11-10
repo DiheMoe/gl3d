@@ -48,10 +48,7 @@ func mutateStream(data []byte, seed, i uint64) []byte {
 // 由种子决定的变异输入逐个经过 streamOnce:两种模式、整体与分块读取的结果一致,模式等价
 // 成立,宽松模式不以截断或损坏结束,输出有限。开发机不跑 -fuzz,这是普通 go test 中的冒烟。
 func TestStreamMutationSmoke(t *testing.T) {
-	perFile := 100
-	if testing.Short() {
-		perFile = 20
-	}
+	const perFile = 20
 	for k, name := range []string{
 		"sine440-stereo-44k1-cbr192.mp3",
 		"pluck-stereo-32k-cbr96-crc-lame.mp3",

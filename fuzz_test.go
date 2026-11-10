@@ -354,7 +354,8 @@ func resyncSeeds(f *testing.F) [][]byte {
 	return seeds
 }
 
-func streamOnce(t *testing.T, data []byte) {
+// streamOnce 返回严格、宽松两种模式的结果,供调用方核对类别。
+func streamOnce(t *testing.T, data []byte) [2]fuzzResult {
 	var results [2]fuzzResult
 	for i, opts := range [][]Option{{Strict()}, {lenient()}} {
 		whole := fuzzDecode(t, bytes.NewReader(data), 4096, opts...)
@@ -373,4 +374,5 @@ func streamOnce(t *testing.T, data []byte) {
 	if strict, lax := results[0], results[1]; (strict.class == "ok" || lax.clean) && strict != lax {
 		t.Fatalf("strict %+v and lenient %+v disagree", strict, lax)
 	}
+	return results
 }
