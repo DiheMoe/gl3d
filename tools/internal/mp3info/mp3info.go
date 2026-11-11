@@ -31,6 +31,7 @@ type LAMEInfo struct {
 	VBRMethod  int    `json:"vbrMethod"`
 	EncDelay   int    `json:"encDelay"`
 	EncPadding int    `json:"encPadding"`
+	CRCValid   bool   `json:"crcValid"`
 }
 
 // Header 是一个 Layer III 帧头描述的格式。
@@ -157,7 +158,10 @@ func Parse(data []byte) (*Info, error) {
 				x.Quality = &v
 			}
 			info.Xing = x
-			info.LAME = parseLAME(data[p:])
+			if l := parseLAME(data[p:]); l != nil {
+				l.CRCValid = tagCRCValid(data[off:min(off+first.FrameSize, len(data))], p+34-off)
+				info.LAME = l
+			}
 		}
 	}
 
@@ -269,4 +273,41 @@ func parseLAME(b []byte) *LAMEInfo {
 		EncDelay:   int(b[21])<<4 | int(b[22])>>4,
 		EncPadding: int(b[22]&0x0F)<<8 | int(b[23]),
 	}
+}
+
+// tagCRCValid 报告 Info 帧 frame 中位于 crcPos 的标签 CRC 是否与帧内容相符。写入方的覆盖
+// 范围有两种,任一吻合即算相符,与 gl3d 相同。LAME 覆盖 CRC 字段之前的全部字节。FFmpeg 覆盖
+// 帧首 190 字节,其中的 CRC 字段按 0 计,帧不足 190 字节时缺的部分也按 0 计。CRC 字段超出
+// 帧尾时不相符。
+func tagCRCValid(frame []byte, crcPos int) bool {
+	if crcPos+2 > len(frame) {
+		return false
+	}
+	stored := binary.BigEndian.Uint16(frame[crcPos:])
+	if crc16ARC(frame[:crcPos]) == stored {
+		return true
+	}
+	if crcPos+2 > 190 {
+		return false
+	}
+	b := make([]byte, 190)
+	copy(b, frame)
+	b[crcPos], b[crcPos+1] = 0, 0
+	return crc16ARC(b) == stored
+}
+
+// crc16ARC 计算 CRC-16/ARC,即反射多项式 0xA001、初值 0。
+func crc16ARC(data []byte) uint16 {
+	var crc uint16
+	for _, c := range data {
+		crc ^= uint16(c)
+		for range 8 {
+			if crc&1 != 0 {
+				crc = crc>>1 ^ 0xA001
+			} else {
+				crc >>= 1
+			}
+		}
+	}
+	return crc
 }

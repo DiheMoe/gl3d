@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -66,6 +67,14 @@ func TestCheckEntryDetectsInconsistencies(t *testing.T) {
 		{"channel mode from the Info frame", func(_ string, _ *manifest, e *entry) { e.ExpectedFormat.ChannelMode = "stereo" }, "first audio frame"},
 		{"bitrate", func(_ string, _ *manifest, e *entry) { v := 128; e.ExpectedFormat.BitrateKbps = &v }, "CBR"},
 		{"trim", func(_ string, _ *manifest, e *entry) { v := 1000; e.Trim.EncPadding = &v }, "LAME tag"},
+		{"LAME tag CRC", func(root string, _ *manifest, e *entry) {
+			path := filepath.Join(root, e.File)
+			data, _ := os.ReadFile(path)
+			data[bytes.Index(data, []byte("Info"))-1] ^= 0xFF // side info 区的最后一个字节,两种 CRC 约定都覆盖
+			os.WriteFile(path, data, 0o644)
+			sum := sha256.Sum256(data)
+			e.SHA256 = hex.EncodeToString(sum[:])
+		}, "tag CRC"},
 		{"expected frames", func(_ string, _ *manifest, e *entry) { v := int64(2206); e.ExpectedFrames = &v }, "expectedFrames"},
 		{"untrimmed reference length", func(root string, _ *manifest, _ *entry) {
 			os.WriteFile(filepath.Join(root, "corpus/synthetic/ref/tone.mpg123.f32le"), make([]byte, 2304*2*4), 0o644)

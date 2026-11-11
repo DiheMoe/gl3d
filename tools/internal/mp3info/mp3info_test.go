@@ -1,6 +1,8 @@
 package mp3info
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"testing"
 )
@@ -128,6 +130,56 @@ func TestParseLAMEEncoderField(t *testing.T) {
 	}
 }
 
+func TestCRC16ARC(t *testing.T) {
+	if got := crc16ARC([]byte("123456789")); got != 0xBB3D {
+		t.Fatalf("crc16ARC(\"123456789\") = %#04x, want 0xbb3d", got)
+	}
+}
+
+// 标签 CRC 有两种覆盖约定,任一吻合即算相符。LAME 覆盖 CRC 字段之前的字节。FFmpeg 覆盖
+// 帧首 190 字节,其中的 CRC 字段按 0 计,帧不足 190 字节时缺的部分也按 0 计,不取下一帧的字节。
+func TestParseLAMETagCRC(t *testing.T) {
+	lame := func(frame []byte, pos int) uint16 { return crc16ARC(frame[:pos]) }
+	ffmpeg := func(frame []byte, pos int) uint16 {
+		b := make([]byte, 190)
+		copy(b, frame)
+		b[pos], b[pos+1] = 0, 0
+		return crc16ARC(b)
+	}
+	for _, tc := range []struct {
+		name     string
+		hdr      []byte
+		sideInfo int
+		size     int
+		crc      func([]byte, int) uint16
+	}{
+		{"MPEG-1 stereo, LAME", header(3, 11, 0, 0, 0), 32, 626, lame},
+		{"MPEG-2.5 mono, LAME", header(0, 4, 0, 0, 3), 9, 208, lame},
+		{"MPEG-2.5 mono, FFmpeg", header(0, 4, 0, 0, 3), 9, 208, ffmpeg},
+		{"MPEG-2 mono shorter than 190 bytes, FFmpeg", header(2, 7, 0, 0, 3), 9, 182, ffmpeg},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := append(tc.hdr, make([]byte, tc.sideInfo)...)
+			data = append(data, xingBlock("Info", 3, 1000, "LAME3.100", 576, 1000)...)
+			data = append(data, make([]byte, tc.size-len(data))...)
+			pos := 4 + tc.sideInfo + 120 + 34
+			binary.BigEndian.PutUint16(data[pos:], tc.crc(data, pos))
+			data = append(data, bytes.Repeat([]byte{0x55}, 256)...) // 下一帧的字节不在覆盖范围内
+			info, err := Parse(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.FrameSize != tc.size || info.LAME == nil || !info.LAME.CRCValid {
+				t.Fatalf("frame size %d (want %d), lame %+v, want a valid CRC", info.FrameSize, tc.size, info.LAME)
+			}
+			data[4] ^= 0xFF // side info 区的第一个字节,两种约定都覆盖
+			if info, err = Parse(data); err != nil || info.LAME == nil || info.LAME.CRCValid {
+				t.Fatalf("after corrupting a covered byte: lame %+v, err %v, want an invalid CRC", info.LAME, err)
+			}
+		})
+	}
+}
+
 func TestParseID3v2SyncsafeSizeAndFooter(t *testing.T) {
 	tag := []byte{'I', 'D', '3', 4, 0, 0x10, 0, 0, 0, 22} // v2.4、footer 标志、syncsafe 长度 22
 	tag = append(tag, make([]byte, 22)...)
@@ -226,7 +278,7 @@ func TestParseCorpusGolden(t *testing.T) {
 	if info.Xing == nil || info.Xing.Kind != "info" || *info.Xing.Frames != 193 || *info.Xing.Bytes != 121625 {
 		t.Fatalf("xing: %+v", info.Xing)
 	}
-	if info.LAME == nil || info.LAME.EncDelay != 576 || info.LAME.EncPadding != 1260 {
+	if info.LAME == nil || info.LAME.EncDelay != 576 || info.LAME.EncPadding != 1260 || !info.LAME.CRCValid {
 		t.Fatalf("lame: %+v", info.LAME)
 	}
 	if info.ID3v1 {

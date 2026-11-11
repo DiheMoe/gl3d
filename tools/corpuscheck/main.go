@@ -4,7 +4,7 @@
 //   - 文件哈希
 //   - expectedFormat 与第一个音频帧一致,bitrateMode/bitrateKbps 与全部帧头及
 //     Xing/LAME 标签一致
-//   - trim 与 LAME 标签一致,Xing 声明的帧数与逐帧扫描一致
+//   - LAME 标签的 CRC 相符,trim 与 LAME 标签一致,Xing 声明的帧数与逐帧扫描一致
 //   - 参考输出的输入哈希与工具版本与清单一致,mpg123 输出是全部帧的未裁剪解码,
 //     FFmpeg 输出等于 expectedFrames,两者之差恰为声明的裁剪量
 //
@@ -156,6 +156,11 @@ func checkEntry(root string, m *manifest, e *entry) []string {
 		}
 	default:
 		fail("unknown bitrateMode %q", ef.BitrateMode)
+	}
+	// 标签 CRC 不符时,gl3d 不采用标签里的帧数与 gapless 字段,FFmpeg 与 mpg123 仍按标签裁剪,
+	// 所以这样的条目没有一致的预期输出
+	if info.LAME != nil && !info.LAME.CRCValid {
+		fail("LAME tag CRC mismatch: gl3d ignores the tag while FFmpeg and mpg123 still trim")
 	}
 	if info.LAME != nil {
 		want := map[int]string{1: "CBR", 2: "ABR", 3: "VBR", 4: "VBR", 5: "VBR", 6: "VBR", 8: "CBR", 9: "ABR"}[info.LAME.VBRMethod]
