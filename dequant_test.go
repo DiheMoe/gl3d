@@ -195,6 +195,152 @@ func TestMidsideStereo(t *testing.T) {
 	}
 }
 
+// LSF 右声道的 intensity 位置按 ISO 13818-3 2.4.3.2 读出。位置取该带 slen 能表示的最大值
+// 时非法,记为 -1。slen 为 0 的带不读位,位置为 0。
+func TestLSFIntensityPositions(t *testing.T) {
+	const sfc = 38 << 1 // int_scalefac_compress 为 38,slen 为 1、0、2、0,长块各分段 7 带
+	if sizes, _, err := lsfScfSizes(sfc, true); err != nil || sizes != [4]int{1, 0, 2, 0} {
+		t.Fatalf("fixture: slen %v, err %v, want [1 0 2 0]", sizes, err)
+	}
+	var w bitWriter
+	for _, v := range []int{0, 1, 0, 1, 0, 1, 0} {
+		w.write(v, 1)
+	}
+	for _, v := range []int{0, 1, 2, 3, 0, 1, 3} {
+		w.write(v, 2)
+	}
+	scf, ist := make([]int, 22), make([]int, 22)
+	gi := &granuleInfo{scalefacCompress: sfc}
+	if _, err := readScalefactors(&bitReader{data: w.bytes}, mpeg2, gi, [4]int{}, shapeLong, false, nil, true, scf, ist); err != nil {
+		t.Fatal(err)
+	}
+	want := []int{0, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, -1, 0, 1, -1, 0}
+	if !slices.Equal(ist, want) {
+		t.Fatalf("positions %v, want %v", ist, want)
+	}
+}
+
+// LSF 的 intensity 增益按 ISO 13818-3 2.4.3.2 计算。位置为 0 时 kl = kr = 1。奇数位置
+// kl = i0^((pos+1)/2)、kr = 1,偶数位置 kl = 1、kr = i0^(pos/2)。右声道 scalefac_compress
+// 的最低位为 1 时 i0 是 1/√2,否则是 2^(-1/4)。非法位置的带不做 intensity。
+func TestLSFIntensityGains(t *testing.T) {
+	bm := bandMapFor(mpeg2, 0, shapeLong)
+	h := &frameHeader{version: mpeg2, channelMode: modeJointStereo, modeExt: 1}
+	pos := make([]int, bm.scfLen)
+	for b := range pos {
+		pos[b] = b
+	}
+	pos[6] = -1
+	for _, scale := range []int{0, 1} {
+		i0 := math.Pow(2, -0.25)
+		if scale == 1 {
+			i0 = 1 / math.Sqrt2
+		}
+		var l, r [576]float64
+		for i := range l {
+			l[i] = 1 // 右声道全为零,所以每一带都在 intensity 区
+		}
+		processStereo(h, &granuleInfo{scalefacCompress: 38<<1 | scale}, bm, pos, 21, &l, &r)
+		for b := 0; b < bm.scfLen; b++ {
+			p := pos[min(b, 20)] // 最高带沿用第 20 带的位置
+			wantL, wantR := 1.0, 1.0
+			switch {
+			case p < 0:
+				wantR = 0 // 不做 intensity,两个声道保持原样
+			case p%2 == 1:
+				wantL = math.Pow(i0, float64((p+1)/2))
+			case p > 0:
+				wantR = math.Pow(i0, float64(p/2))
+			}
+			for i := bm.sfbStart[b]; i < bm.sfbStart[b+1]; i++ {
+				if math.Abs(l[i]-wantL) > 1e-12 || math.Abs(r[i]-wantR) > 1e-12 {
+					t.Fatalf("intensity_scale %d, band %d, position %d: line %d = (%v, %v), want (%v, %v)",
+						scale, b, p, i, l[i], r[i], wantL, wantR)
+				}
+			}
+		}
+	}
+}
+
+// 最高带(长块第 21 带)不传 scalefactor,沿用第 20 带的。第 20 带不在 intensity 区时,仍把
+// 它的 scalefactor 当作位置,与 FFmpeg、mpg123 相同。ISO 11172-3 与 13818-3 都没有规定
+// 这种情形。
+func TestIntensityTopBandTakesBandBelow(t *testing.T) {
+	bm := bandMapFor(mpeg1, 0, shapeLong)
+	h := &frameHeader{version: mpeg1, channelMode: modeJointStereo, modeExt: 1}
+	pos := make([]int, bm.scfLen)
+	pos[20] = 2
+	var l, r [576]float64
+	for i := range l {
+		l[i] = 1
+	}
+	r[bm.sfbStart[20]] = 1 // 第 20 带有非零谱线,所以界限在第 20 带之上
+	processStereo(h, &granuleInfo{}, bm, pos, 21, &l, &r)
+	kl, kr := intensityPan(2)
+	for i := range l {
+		wantL, wantR := 1.0, 0.0
+		switch {
+		case i >= bm.sfbStart[21]:
+			wantL, wantR = kl, kr
+		case i == bm.sfbStart[20]:
+			wantR = 1
+		}
+		if l[i] != wantL || r[i] != wantR {
+			t.Fatalf("line %d = (%v, %v), want (%v, %v)", i, l[i], r[i], wantL, wantR)
+		}
+	}
+}
+
+// 短块的 intensity 界限逐窗口确定,每个窗口在自己最后一个非零带之上做 intensity。LSF 这样做
+// 是 ISO 13818-3 2.4.3.2 的规定。按同一节的说法 MPEG-1 不逐窗口确定,但 FFmpeg、mpg123 与
+// dist10 都逐窗口确定,本实现与它们相同。
+func TestIntensityBoundPerShortWindow(t *testing.T) {
+	for _, v := range []mpegVersion{mpeg1, mpeg2} {
+		bm := bandMapFor(v, 0, shapeShort)
+		h := &frameHeader{version: v, channelMode: modeJointStereo, modeExt: 1}
+		sfb := make([]int, bm.scfLen) // 每一带在本窗口内的序号
+		var next [3]int
+		for b := range sfb {
+			w := bm.bandWin[b]
+			sfb[b] = next[w]
+			next[w]++
+		}
+		var l, r [576]float64
+		for i := range l {
+			l[i] = 1
+		}
+		var marker int
+		for b := range sfb {
+			if bm.bandWin[b] == 0 && sfb[b] == 5 {
+				marker = bm.sfbStart[b]
+			}
+		}
+		r[marker] = 1 // 窗口 0 的最后一个非零带是第 5 带,窗口 1、2 全为零
+		// 位置全为 0,两个版本的 kr 都是 1,所以做了 intensity 的谱线右声道为 1
+		processStereo(h, &granuleInfo{}, bm, make([]int, bm.scfLen), 36, &l, &r)
+		kl, _ := intensityPan(0)
+		if v != mpeg1 {
+			kl = 1
+		}
+		for b := range sfb {
+			inIntensity := bm.bandWin[b] != 0 || sfb[b] > 5
+			for i := bm.sfbStart[b]; i < bm.sfbStart[b+1]; i++ {
+				wantL, wantR := 1.0, 0.0
+				switch {
+				case inIntensity:
+					wantL, wantR = kl, 1
+				case i == marker:
+					wantR = 1
+				}
+				if l[i] != wantL || r[i] != wantR {
+					t.Fatalf("version %d, window %d, band %d: line %d = (%v, %v), want (%v, %v)",
+						v, bm.bandWin[b], sfb[b], i, l[i], r[i], wantL, wantR)
+				}
+			}
+		}
+	}
+}
+
 // big_values 表 0 不读取任何位。即使 576 条谱线都由表 0 给出,声明的
 // part2_3_length 也不能越过物理窗口,否则是损坏,不能与允许丢弃的 count1
 // stuffing 混为一谈。出错后频谱置零、读位置停在 granule 结尾,供宽松模式
