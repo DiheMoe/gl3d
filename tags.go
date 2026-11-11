@@ -10,10 +10,15 @@ import (
 
 // parseID3v2Header 解析 10 字节 ID3v2 头。size 为标签总字节数(含 10
 // 字节头与体,不含 footer)。size 字段是 syncsafe,每字节仅低 7 位有效。
+// 主版本号或修订号为 0xFF 的头无效,因为规范保证这两个字节不会是 0xFF,FFmpeg
+// 与 mpg123 也不把这样的头当作标签。
 // footer 仅 ID3v2.4 可出现,存在时调用方须在 size 之外再跳 10 字节。
 func parseID3v2Header(b [10]byte) (size int, footer bool, err error) {
 	if b[0] != 'I' || b[1] != 'D' || b[2] != '3' {
 		return 0, false, fmt.Errorf("not an ID3v2 header")
+	}
+	if b[3] == 0xFF || b[4] == 0xFF {
+		return 0, false, fmt.Errorf("invalid version bytes %#x %#x", b[3], b[4])
 	}
 	sz := 0
 	for _, c := range b[6:10] {
@@ -25,11 +30,34 @@ func parseID3v2Header(b [10]byte) (size int, footer bool, err error) {
 	return 10 + sz, b[3] == 4 && b[5]&0x10 != 0, nil
 }
 
-// id3v2HeaderAt 报告 b 起点是否是有效的 ID3v2 头:标识 "ID3",size 的四个字节都是
-// syncsafe。接受的范围同 parseID3v2Header,但不构造错误值,不分配内存,所以逐字节试探
-// 垃圾时先用 id3v2HeaderAt 排除。
+// id3v2HeaderAt 报告 b 起点是否是有效的 ID3v2 头:标识 "ID3",主版本号与修订号都不是
+// 0xFF,size 的四个字节都是 syncsafe。接受的范围同 parseID3v2Header,但不构造错误值,
+// 不分配内存,所以逐字节试探垃圾时先用 id3v2HeaderAt 排除。
 func id3v2HeaderAt(b []byte) bool {
-	return len(b) >= 10 && string(b[:3]) == "ID3" && (b[6]|b[7]|b[8]|b[9])&0x80 == 0
+	return len(b) >= 10 && string(b[:3]) == "ID3" && b[3] != 0xFF && b[4] != 0xFF &&
+		(b[6]|b[7]|b[8]|b[9])&0x80 == 0
+}
+
+// id3v2HeaderFlaw 检查有效的 ID3v2 头里不合规范、但不妨碍按 size 跳过的字段:主版本不是
+// 2、3、4,或者置了该版本没有定义的标志位。规范要求未定义的标志位为 0,遇到更高的主版本
+// 时不解析整个标签。FFmpeg 与 mpg123 照常按 size 跳过这样的标签,所以宽松模式也这样做,
+// 只把它记入报告。
+func id3v2HeaderFlaw(b [10]byte) error {
+	var defined byte
+	switch b[3] {
+	case 2:
+		defined = 0xC0 // 不同步、压缩
+	case 3:
+		defined = 0xE0 // 不同步、扩展头、实验性
+	case 4:
+		defined = 0xF0 // 不同步、扩展头、实验性、footer
+	default:
+		return fmt.Errorf("unsupported version 2.%d", b[3])
+	}
+	if undefined := b[5] &^ defined; undefined != 0 {
+		return fmt.Errorf("undefined flags %#02x in version 2.%d", undefined, b[3])
+	}
+	return nil
 }
 
 type xingInfo struct {

@@ -122,7 +122,11 @@ func (f *framer) skipTag(ctx context.Context, kind TagSet) error {
 	case TagID3v1Ext:
 		return f.skipSpan(ctx, tagPlusSize, at, "TAG+ tag")
 	case TagID3v2:
-		size, footer, _ := parseID3v2Header([10]byte(f.s.buf[:10]))
+		hdr := [10]byte(f.s.buf[:10])
+		if err := f.checkID3v2Header(hdr, f.frames, at); err != nil {
+			return err
+		}
+		size, footer, _ := parseID3v2Header(hdr)
 		if footer {
 			size += 10
 		}

@@ -82,7 +82,8 @@ func (f *framer) open(ctx context.Context) (streamInfo, error) {
 
 // skipTags 跳过流开头连续的 ID3v2 标签(2.2/2.3/2.4)。标签声明的长度不可信,所以分块跳过,
 // 不按声明长度分配内存,严格模式下累计跳过量以 tagSkipBudget 为限。头无效的 "ID3"
-// 在严格模式报错。宽松模式不信这个标识,交给 syncSearch 当垃圾往后找帧。数据在标签
+// 在严格模式报错。宽松模式不信这个标识,交给 syncSearch 当垃圾往后找帧。主版本或标志位
+// 不合规范的标签同样在严格模式报错,宽松模式记入报告后照常按 size 跳过。数据在标签
 // 中间结束时宽松模式报无音频,因为其后没有东西可解码。
 func (f *framer) skipTags(ctx context.Context) error {
 	for {
@@ -100,6 +101,9 @@ func (f *framer) skipTags(ctx context.Context) error {
 			// 宽松模式不信这个标识,所以这些字节按垃圾处理,由 syncSearch 往后找帧
 			cerr := &CorruptError{Frame: -1, Detail: "invalid ID3v2 header: " + err.Error()}
 			return f.tolerate(cerr, f.s.tell())
+		}
+		if err := f.checkID3v2Header([10]byte(f.s.buf[:10]), -1, f.s.tell()); err != nil {
+			return err
 		}
 		total := size
 		if footer {
@@ -136,6 +140,16 @@ func (f *framer) chargeTag(n, at int64) error {
 		}
 	}
 	f.tagBytes += n
+	return nil
+}
+
+// checkID3v2Header 处理 at 处 ID3v2 头里不合规范、但不妨碍跳过的字段(见 id3v2HeaderFlaw)。
+// frame 是 CorruptError 的帧号。严格模式返回错误。宽松模式记入报告后返回 nil,调用方照常
+// 按 size 跳过这个标签。
+func (f *framer) checkID3v2Header(hdr [10]byte, frame, at int64) error {
+	if err := id3v2HeaderFlaw(hdr); err != nil {
+		return f.tolerate(&CorruptError{Frame: frame, Detail: "invalid ID3v2 header: " + err.Error()}, at)
+	}
 	return nil
 }
 

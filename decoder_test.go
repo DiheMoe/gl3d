@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -265,6 +266,48 @@ func rawID3v2(major, flags byte, body []byte, footer bool) []byte {
 		out = append(out, size...)
 	}
 	return out
+}
+
+// 主版本不是 2、3、4,或置了未定义标志位的 ID3v2 标签,出现在流开头或流尾时,严格模式报
+// 格式错误。宽松模式记入报告,按 size 跳过整个标签,不当作垃圾逐字节扫描,所以不计入
+// SkippedBytes,音频照常解出。
+func TestID3v2HeaderFlawsStrictErrorLenientSkip(t *testing.T) {
+	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
+	_, want := decodeAll(t, bytes.NewReader(shine))
+	frames := int64(len(want) / 2 / 1152)
+	body := bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 64) // 当作垃圾扫描时会被看成帧头
+	for _, tag := range []struct {
+		name string
+		tag  []byte
+	}{
+		{"major version 5", rawID3v2(5, 0, body, false)},
+		{"v2.3 with the footer flag", rawID3v2(3, 0x10, body, false)},
+		{"v2.4 with an undefined flag", rawID3v2(4, 0x08, body, false)},
+	} {
+		for _, pos := range []struct {
+			name  string
+			data  []byte
+			first Issue
+		}{
+			{"leading", cat(tag.tag, shine), Issue{Kind: IssueCorrupt, Frame: -1, Offset: 0}},
+			{"trailing", cat(shine, tag.tag), Issue{Kind: IssueCorrupt, Frame: frames, Offset: int64(len(shine))}},
+		} {
+			t.Run(tag.name+"/"+pos.name, func(t *testing.T) {
+				if _, _, err := decodeMode(t, bytes.NewReader(pos.data), Strict()); errClass(err) != "corrupt" {
+					t.Fatalf("strict: err %v, want a corrupt error", err)
+				}
+				d, got, err := decodeMode(t, bytes.NewReader(pos.data), lenient())
+				if err != nil {
+					t.Fatal(err)
+				}
+				r := d.Report()
+				if !slices.Equal(got, want) || r.SkippedBytes != 0 || r.First == nil || *r.First != pos.first {
+					t.Fatalf("lenient: %d samples (want %d), report %+v, first %+v; want first %+v and nothing skipped",
+						len(got), len(want), r, r.First, pos.first)
+				}
+			})
+		}
+	}
 }
 
 // 文件开头连续的 ID3v2.2/2.3/2.4 标签(含 v2.4 footer)都必须完整跳过,不影响解码结果。
