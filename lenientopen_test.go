@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// badInfoFrame 返回由语料的 Info 帧改出的、Xing 头声明的字段装不进帧的 Info 帧:码率降到
+// badInfoFrame 返回由语料的 Info 帧改出的、Xing 头声明的字段装不进帧的 Info 帧。码率降到
 // 32 kbps(帧长 104 B),flags 声明全部四个字段(共需 120 字节)。
 func badInfoFrame(t *testing.T) []byte {
 	t.Helper()
@@ -31,8 +31,8 @@ func badInfoFrame(t *testing.T) []byte {
 }
 
 // 宽松模式的 NewDecoder 只在读取出错、取消、无音频、不支持的格式或超出限制时失败,不为
-// 流本身的格式问题失败:开头的 ID3v2 头无效时按垃圾往后找帧;数据在帧之前结束时没有可
-// 交出的音频;首帧的 Xing 标签解析不了时整帧丢弃,不采用其中的字段。严格模式的错误不变。
+// 流本身的格式问题失败。开头的 ID3v2 头无效时按垃圾往后找帧。数据在帧之前结束时没有可
+// 交出的音频。首帧的 Xing 标签解析不了时整帧丢弃,不采用其中的字段。严格模式的错误不变。
 func TestLenientOpenFailsOnlyWithoutAnythingToDecode(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	_, want := decodeAll(t, bytes.NewReader(shine))
@@ -43,7 +43,7 @@ func TestLenientOpenFailsOnlyWithoutAnythingToDecode(t *testing.T) {
 		name    string
 		src     func() io.Reader
 		strict  string // 严格模式 NewDecoder 的错误类别
-		lenient string // 宽松模式的错误类别;"ok" 表示建成解码器并解出 shine 的全部样本
+		lenient string // 宽松模式的错误类别,"ok" 表示建成解码器并解出 shine 的全部样本
 		first   Issue  // 宽松模式建成解码器时的第一处异常
 	}{
 		{"ID3v2 header with a non-syncsafe size",
@@ -70,7 +70,7 @@ func TestLenientOpenFailsOnlyWithoutAnythingToDecode(t *testing.T) {
 		{"malformed Xing first frame then frames",
 			func() io.Reader { return bytes.NewReader(cat(bad, shine)) },
 			"corrupt", "ok", Issue{Kind: IssueCorrupt, Frame: 0, Offset: 0}},
-		// 源出错时未经确认交出的首帧带着解析不了的标签,多半是伪同步:报告源错误
+		// 源出错时按未确认接受的首帧带着解析不了的标签,多半是伪同步,所以报告源错误
 		{"unconfirmed malformed Xing first frame and a source error",
 			func() io.Reader { return &dataWithErrReader{r: bytes.NewReader(bad), err: sourceErr} },
 			"other: source reset", "other: source reset", Issue{}},

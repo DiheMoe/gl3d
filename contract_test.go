@@ -11,7 +11,7 @@ import (
 )
 
 // audioFrames 返回各音频帧的起始偏移(不含 Xing/VBRI 标签帧)与最后一个完整
-// 帧的结束偏移;仅作为构造截断与变异输入的测试夹具。
+// 帧的结束偏移,仅作为构造截断与变异输入的测试夹具。
 func audioFrames(t *testing.T, data []byte) (starts []int, end int) {
 	t.Helper()
 	p := 0
@@ -42,8 +42,8 @@ func audioFrames(t *testing.T, data []byte) (starts []int, end int) {
 	return starts, p
 }
 
-// 缓冲契约:零长度请求返回 (0, nil) 且不推进;缓冲不足一个采样帧(每声道
-// 一个样本)返回 ErrSmallBuffer,同样不推进。
+// 缓冲契约:零长度请求返回 (0, nil) 且不推进。缓冲不足一个采样帧(每声道
+// 一个样本)时返回 ErrSmallBuffer,同样不推进。
 func TestReadPCMBufferContract(t *testing.T) {
 	ctx := context.Background()
 	d, err := NewDecoder(ctx, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")), Strict())
@@ -73,14 +73,14 @@ func TestReadPCMBufferContract(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 220500 = 193×1152 − (576+529) − (1260−529):LAME 标签的 enc_delay 与 enc_padding 都要
-	// 计入解码器 529 样本的结构延迟,裁剪后恰为 5 s × 44100 Hz
+	// 220500 = 193×1152 − (576+529) − (1260−529),裁剪后恰为 5 s × 44100 Hz。
+	// LAME 标签的 enc_delay 与 enc_padding 都要计入解码器 529 样本的结构延迟
 	if total != 220500 || d.Frames() != 220500 {
 		t.Fatalf("delivered %d, Frames()=%d, want 220500", total, d.Frames())
 	}
 }
 
-// 解码中途取消:必须及时(内存输入下远快于 100 ms)返回 context 错误并保持
+// 解码中途取消时,必须及时(内存输入下远快于 100 ms)返回 context 错误并保持
 // 该错误,不能退化为正常结束。
 func TestReadPCMCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,7 +110,7 @@ func TestReadPCMCancellation(t *testing.T) {
 	if _, err := d.ReadPCM(ctx, buf); !errors.Is(err, context.Canceled) {
 		t.Fatalf("after cancel: err=%v, want context.Canceled again", err)
 	}
-	// 取消在帧之间检查:已解码待交付的样本可以交付,但不再解码新帧
+	// 取消在帧之间检查,所以已解码待交付的样本可以交付,但不再解码新帧
 	if d.DecodedFrames() != decodedAtCancel {
 		t.Fatalf("decoded %d more sample frames after cancel, want 0", d.DecodedFrames()-decodedAtCancel)
 	}
@@ -132,7 +132,7 @@ func (c *cancelAfterReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// 大标签分块跳过的块间必须检查取消:取消后跳过立即停止,不得继续读完整个标签。
+// 大标签分块跳过的块间必须检查取消。取消后跳过立即停止,不得继续读完整个标签。
 func TestCancelDuringTagSkip(t *testing.T) {
 	data := append(id3v2Tag(3<<20), repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)...)
 	ctx, cancel := context.WithCancel(context.Background())

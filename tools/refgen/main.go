@@ -1,6 +1,6 @@
 // Command refgen 用参考解码器解码 MP3 文件,为每个输入在 OUTDIR 写出 NAME.ffmpeg.f64le
 // (判定基准)、NAME.mpg123.f32le(交叉检查)和记录输入哈希、工具版本与命令的
-// NAME.meta。两个解码器都不做增益控制、重采样或声道转换;FFmpeg 默认按 LAME 标签做
+// NAME.meta。两个解码器都不做增益控制、重采样或声道转换。FFmpeg 默认按 LAME 标签做
 // gapless 裁剪,mpg123 以 --no-gapless 输出全部帧的未裁剪解码。参考工具版本冻结在
 // corpus/manifest.json 的 referenceTools,由 corpuscheck 核对。
 //
@@ -22,7 +22,7 @@ import (
 	"strings"
 )
 
-// 参考解码命令的参数,meta 原样记录;INPUT 与 OUT 在运行时换成实际路径。
+// 参考解码命令的参数,meta 原样记录。INPUT 与 OUT 在运行时换成实际路径。
 var (
 	ffmpegArgs = []string{"-v", "error", "-nostdin", "-i", "INPUT", "-map", "0:a:0", "-f", "f64le", "-acodec", "pcm_f64le", "OUT"}
 	mpg123Args = []string{"-q", "--no-gapless", "--float", "-s", "INPUT"}

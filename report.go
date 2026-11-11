@@ -6,29 +6,29 @@ import (
 	"strings"
 )
 
-// Report 汇总解码器在流中遇到的结构。随时可查;ReadPCM 返回 io.EOF 或其他错误
+// Report 汇总解码器在流中遇到的结构,随时可查。ReadPCM 返回 io.EOF 或其他错误
 // (ErrSmallBuffer 除外,它不终止解码)之后为最终值。
 type Report struct {
-	DeclaredFrames    int64  // Xing/VBRI 声明的音频帧数(MPEG 帧,不是采样帧);-1 表示没有采用的声明,声明为 0 视为未知
+	DeclaredFrames    int64  // Xing/VBRI 声明的音频帧数(MPEG 帧,不是采样帧)。-1 表示没有采用的声明,声明为 0 视为未知
 	AudioFrames       int64  // 已解码的音频帧数(MPEG 帧,不是采样帧),不含标签帧
-	DroppedFrames     int64  // 宽松模式丢弃的帧:帧内另有一帧开始(帧长与数据对不上),或 side info 非法
-	ConcealedGranules int64  // 宽松模式容错的 granule(每声道各计):scalefactor 或谱数据出错,余下的谱线置零
-	CRCErrors         int64  // 宽松模式 CRC 不符的帧;side info 仍合法时照常解码,否则另计入 DroppedFrames
-	SkippedBytes      int64  // 宽松模式跳过的字节:垃圾、分帧层丢弃的帧、格式不同的帧、损坏的标签、未知尾部数据;首帧之前的字节不计
+	DroppedFrames     int64  // 宽松模式丢弃的帧:帧内另有一帧开始(帧长与数据对不上),side info 非法,或所需位数超出 main data
+	ConcealedGranules int64  // 宽松模式容错的 granule(每声道各计)。scalefactor 或谱数据出错时,余下的谱线置零
+	CRCErrors         int64  // 宽松模式 CRC 不符的帧。side info 仍合法且所需位数不超出 main data 时照常解码,否则另计入 DroppedFrames
+	SkippedBytes      int64  // 宽松模式跳过的字节:垃圾、分帧层丢弃的帧、格式不同的帧、损坏的标签、未知尾部数据。首帧之前的字节不计
 	Resyncs           int64  // 宽松模式跳过数据之后重新找到帧或标签的次数
 	MidstreamTags     int64  // 流中间跳过的标签与 Xing/Info/VBRI 标签帧的个数
 	Truncated         bool   // 流在帧、帧头或标签中间结束,宽松模式丢弃了不完整的部分
-	Emphasis          int    // 首帧的 emphasis 字段;非零时宽松模式照常解码,不做去加重
+	Emphasis          int    // 首帧的 emphasis 字段。非零时宽松模式照常解码,不做去加重
 	TrailingTags      TagSet // 流尾识别出的标签
-	First             *Issue // 第一处异常;nil 表示没有
+	First             *Issue // 第一处异常,nil 表示没有
 }
 
 // Clean 报告到目前为止是否没有遇到异常。以源读取错误或取消结束时,它只说明
 // 已经读到的部分。
 func (r Report) Clean() bool { return r.First == nil }
 
-// note 把 err 记为第一处异常,frame 与 offset 是发现它的位置;错误自带的位置
-// (TruncatedError 的偏移、CorruptError 的帧号)优先。已有记录时不覆盖;只记录
+// note 把 err 记为第一处异常,frame 与 offset 是发现它的位置。错误自带的位置
+// (TruncatedError 的偏移、CorruptError 的帧号)优先。已有记录时不覆盖。只记录
 // 流的格式问题与资源限制,源读取错误与取消不属于流的结构。
 func (r *Report) note(err error, frame, offset int64) {
 	if r.First != nil {
@@ -51,8 +51,8 @@ func (r *Report) note(err error, frame, offset int64) {
 	r.First = &Issue{Kind: kind, Frame: frame, Offset: offset}
 }
 
-// issueKind 返回 err 对应的异常类别;不是流的格式问题或资源限制时返回 0。分帧层产生的
-// 错误不经包装,先按动态类型直接判断,不分配内存;包装过的错误才走 errors.As。
+// issueKind 返回 err 对应的异常类别,不是流的格式问题或资源限制时返回 0。分帧层产生的
+// 错误不经包装,先按动态类型直接判断,不分配内存。包装过的错误才走 errors.As。
 func issueKind(err error) IssueKind {
 	switch err.(type) {
 	case *TruncatedError:
@@ -132,9 +132,10 @@ func (r Report) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// Issue 是一处异常:类别,以及它在流中的位置——此前已解码的音频帧数(MPEG 帧,
-// 不含标签帧;无法定位到帧时为 -1)与异常所在的帧或标签的起点;流结束时才发现的
-// 异常(帧数与声明不符、gapless 填充超出输出)偏移为流的结尾。
+// Issue 是一处异常。Kind 是类别,Frame 与 Offset 是它在流中的位置。
+// Frame 是此前已解码的音频帧数(MPEG 帧,不含标签帧),无法定位到帧时为 -1。
+// Offset 是异常所在的帧或标签的起点。流结束时才发现的异常
+// (帧数与声明不符、gapless 填充超出输出)Offset 为流的结尾。
 type Issue struct {
 	Kind   IssueKind
 	Frame  int64

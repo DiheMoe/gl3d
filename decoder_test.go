@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// oneByteReader 每次最多返回 1 字节:短读是 Reader 的合法行为,解码路径不得假设一次填满。
+// oneByteReader 每次最多返回 1 字节。短读是 Reader 的合法行为,解码路径不得假设一次填满。
 type oneByteReader struct{ r *bytes.Reader }
 
 func (o *oneByteReader) Read(p []byte) (int, error) {
@@ -20,7 +20,7 @@ func (o *oneByteReader) Read(p []byte) (int, error) {
 	return o.r.Read(p)
 }
 
-// dataWithErrReader 在数据耗尽处把 io.EOF 换成指定错误,模拟源失败:Reader 允许最后一批数据与错误同返。
+// dataWithErrReader 在数据耗尽处把 io.EOF 换成指定错误,模拟源失败。Reader 允许最后一批数据与错误同返。
 type dataWithErrReader struct {
 	r   *bytes.Reader
 	err error
@@ -34,7 +34,7 @@ func (d *dataWithErrReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// zeroReader 永远返回 (0, nil):合法但无进展,解码器必须报错而不是空转。
+// zeroReader 永远返回 (0, nil)。这样的 Reader 合法但无进展,解码器必须报错而不是空转。
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { return 0, nil }
@@ -171,8 +171,8 @@ func TestNewDecoderUnsupportedStreams(t *testing.T) {
 	}
 }
 
-// 首帧定位不能只匹配同步位:候选须通过帧头校验,并在数据充足时以其帧长处的
-// 下一个有效帧头确认;逐字节推进的搜索以 64 KiB 预算为限。
+// 首帧定位不能只匹配同步位。候选须通过帧头校验,并在数据充足时以其帧长处的
+// 下一个有效帧头确认。逐字节推进的搜索以 64 KiB 预算为限。
 func TestSyncSearchCandidates(t *testing.T) {
 	layer3 := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
 	t.Run("isolated layer II header then layer III", func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestSyncSearchCandidates(t *testing.T) {
 	})
 }
 
-// 同步搜索预算按首帧前丢弃的字节数计:超过 64 KiB 即资源超限,流随后结束也一样;
+// 同步搜索预算按首帧前丢弃的字节数计。超过 64 KiB 即资源超限,流随后结束也一样。
 // 结果不随读取分块变化。
 func TestSyncSearchBudgetAtStreamEnd(t *testing.T) {
 	frames := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
@@ -226,7 +226,7 @@ func TestSyncSearchBudgetAtStreamEnd(t *testing.T) {
 	}
 }
 
-// id3v2Tag 返回声明 size 字节标签体(不含 10 字节头)的 ID3v2.4 标签;长度按 syncsafe(每字节 7 位)编码。
+// id3v2Tag 返回声明 size 字节标签体(不含 10 字节头)的 ID3v2.4 标签。长度按 syncsafe(每字节 7 位)编码。
 func id3v2Tag(size int) []byte { return append(id3v2Header(size), make([]byte, size)...) }
 
 // id3v2Header 返回声明 size 字节标签体的 ID3v2.4 头,不含标签体。
@@ -242,7 +242,7 @@ func (zeroFill) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 func TestSkipID3v2Limits(t *testing.T) {
 	t.Run("tags beyond 16 MiB budget", func(t *testing.T) {
-		// 预算按累计计算:单个 9 MiB 标签合法,两个相加越过 16 MiB
+		// 预算按累计计算。单个 9 MiB 标签合法,两个相加越过 16 MiB
 		big := id3v2Tag(9 << 20)
 		data := append(append(append([]byte{}, big...), big...), repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)...)
 		_, err := NewDecoder(context.Background(), bytes.NewReader(data), Strict())
@@ -253,7 +253,7 @@ func TestSkipID3v2Limits(t *testing.T) {
 	})
 }
 
-// rawID3v2 组装 ID3v2.major 标签:10 字节头 + body;footer 为真时追加 v2.4 的
+// rawID3v2 组装 ID3v2.major 标签:10 字节头 + body。footer 为真时追加 v2.4 的
 // "3DI" 尾部(协议要求此时 flags 含 0x10)。
 func rawID3v2(major, flags byte, body []byte, footer bool) []byte {
 	n := len(body)

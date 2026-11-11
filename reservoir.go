@@ -8,7 +8,7 @@ type reservoir struct {
 	win []byte // assemble 的输出视图,下一次 assemble 时被覆盖
 }
 
-// maxMainData 是单帧自带 main data 的上界(最大帧 1441 字节减去帧头与 side info)。
+// maxMainData 是单帧自带 main data 的上界,取最大帧长 1441 字节。
 const maxMainData = 1441
 
 func newReservoir(max int) *reservoir {
@@ -20,9 +20,9 @@ func newReservoir(max int) *reservoir {
 }
 
 // assemble 返回该帧完整 main_data 视图:reservoir 尾部 mainDataBegin 字节起,
-// 接上当前帧自带的 main 字节;视图只保证在本帧解码期间有效,要求 frameMain
+// 接上当前帧自带的 main 字节。视图只保证在本帧解码期间有效,要求 frameMain
 // 在此期间保持有效且不变。无回指时直接借用 frameMain。码流从中途开始时
-// mainDataBegin 可以超过已收到的数据量:视图开头补 missing 个 0 字节占位,
+// mainDataBegin 可以超过已收到的数据量,所以视图开头补 missing 个 0 字节占位,
 // 使偏移与完整码流一致,占位字节不是码流数据。
 func (r *reservoir) assemble(mainDataBegin int, frameMain []byte) (window []byte, missing int) {
 	if mainDataBegin == 0 {
@@ -48,5 +48,5 @@ func (r *reservoir) advance(frameMain []byte) {
 	r.buf = append(r.buf[:keep], frameMain...)
 }
 
-// reset 丢弃保留的历史字节:其后的帧按码流从中途开始处理。
+// reset 丢弃保留的历史字节,所以其后的帧按码流从中途开始处理。
 func (r *reservoir) reset() { r.buf = r.buf[:0] }

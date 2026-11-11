@@ -2,7 +2,7 @@
 // 退出码:0 在门槛内,1 超出门槛,2 用法或数据错误。
 //
 // 对齐只按 -skip-ref/-skip-out 给出的帧数进行,这些偏移须能由解码延迟或 gapless
-// 规则解释;工具不搜索最优偏移,也不拟合增益。
+// 规则解释。工具不搜索最优偏移,也不拟合增益。
 package main
 
 import (
@@ -122,7 +122,7 @@ func pcmValue(b []byte, width int) float64 {
 	return float64(math.Float32frombits(binary.LittleEndian.Uint32(b)))
 }
 
-// quietPeakFullScale 即 -60 dBFS:参考峰值不低于它时按 dB 差判定峰值,更低时按
+// quietPeakFullScale 即 -60 dBFS。参考峰值不低于它时按 dB 差判定峰值,更低时按
 // 满刻度绝对误差门槛判定。
 const quietPeakFullScale = 1e-3
 

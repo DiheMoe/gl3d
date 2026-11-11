@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// lenient 选择宽松模式:可以容忍的异常结构跳过并记入报告,不终止解码。
+// lenient 选择宽松模式。宽松模式下,可以容忍的异常结构跳过并记入报告,不终止解码。
 func lenient() Option {
 	return func(c *config) { c.strict = false }
 }
 
 // decodeMode 以给定选项解码到流结束,返回解码器、已交付的 PCM 与终止错误
-// (正常结束为 nil);NewDecoder 失败时解码器为 nil。
+// (正常结束为 nil)。NewDecoder 失败时解码器为 nil。
 func decodeMode(t *testing.T, r io.Reader, opts ...Option) (*Decoder, []float64, error) {
 	t.Helper()
 	d, err := NewDecoder(context.Background(), r, opts...)
@@ -38,8 +38,9 @@ func decodeMode(t *testing.T, r io.Reader, opts ...Option) (*Decoder, []float64,
 	}
 }
 
-// 选项按传入顺序生效,后者覆盖前者;nil 选项被忽略,不传选项即宽松模式。模式用
-// 可观察的行为判定:音频之后的垃圾在宽松模式下跳过并记入报告,在严格模式下报 CorruptError。
+// 选项按传入顺序生效,后者覆盖前者。nil 选项被忽略,不传选项即宽松模式。
+// 模式用可观察的行为判定。音频之后的垃圾在宽松模式下跳过并记入报告,
+// 在严格模式下报 CorruptError。
 func TestOptionsApplyInOrder(t *testing.T) {
 	data := cat(readCorpus(t, "sine440-stereo-44k1-cbr192.mp3"), noSync(300))
 	strictOf := func(t *testing.T, opts ...Option) bool {

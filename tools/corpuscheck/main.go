@@ -1,12 +1,12 @@
 // Command corpuscheck 用语料文件、独立于 gl3d 的帧头解析器(internal/mp3info)和
 // refgen 写出的参考输出核对 corpus/manifest.json 的每个条目:
 //
-//   - 文件哈希;
+//   - 文件哈希
 //   - expectedFormat 与第一个音频帧一致,bitrateMode/bitrateKbps 与全部帧头及
-//     Xing/LAME 标签一致;
-//   - trim 与 LAME 标签一致,Xing 声明的帧数与逐帧扫描一致;
+//     Xing/LAME 标签一致
+//   - trim 与 LAME 标签一致,Xing 声明的帧数与逐帧扫描一致
 //   - 参考输出的输入哈希与工具版本与清单一致,mpg123 输出是全部帧的未裁剪解码,
-//     FFmpeg 输出等于 expectedFrames,两者之差恰为声明的裁剪量。
+//     FFmpeg 输出等于 expectedFrames,两者之差恰为声明的裁剪量
 //
 // 条目标为 frozen 前须通过本检查。退出码:0 全部一致,1 有条目不一致,2 清单无法读取。
 //

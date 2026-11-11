@@ -9,7 +9,7 @@ import (
 )
 
 // BenchmarkDecode 的度量口径:单核(以 -cpu 1 运行)、输入预读入内存、只做解码
-// 不做响度分析;x-realtime 为音频时长与解码耗时之比。
+// 不做响度分析。x-realtime 为音频时长与解码耗时之比。
 func BenchmarkDecode(b *testing.B) {
 	for _, name := range []string{
 		"sine440-stereo-44k1-cbr192",       // MPEG-1 立体声 MS,长块为主

@@ -35,8 +35,8 @@ func lameStream(t *testing.T) (data []byte, starts []int, k int) {
 	return nil, nil, 0
 }
 
-// 宽松模式按长度跳过流中间的标签,bit reservoir 保留:即使紧随其后的帧回指标签
-// 之前的数据,输出也与去掉标签的流逐字节相同;报告计数并记下第一个标签。
+// 宽松模式按长度跳过流中间的标签,bit reservoir 保留,所以即使紧随其后的帧回指标签
+// 之前的数据,输出也与去掉标签的流逐字节相同。报告计数并记下第一个标签。
 func TestMidstreamTagsLenient(t *testing.T) {
 	x, starts, k := lameStream(t)
 	_, want, err := decodeMode(t, bytes.NewReader(x), lenient())
@@ -71,7 +71,7 @@ func TestMidstreamTagsLenient(t *testing.T) {
 	}
 }
 
-// 流中间的标签帧(拼接处后一个流的开头):严格模式报格式错误;宽松模式整帧跳过,
+// 流中间的标签帧(拼接处后一个流的开头):严格模式报格式错误。宽松模式整帧跳过,
 // 其后的帧不能回指它之前的 main data。
 func TestMidstreamTagFrame(t *testing.T) {
 	x, starts, k := lameStream(t)
@@ -115,7 +115,7 @@ func TestMidstreamTagFrame(t *testing.T) {
 		if len(got) != len(want) {
 			t.Fatalf("%d samples, want %d: the tag frame is not audio", len(got), len(want))
 		}
-		// 第 k 帧之前逐字节相同;第 k 帧回指的数据在断档之前,不再可用,输出随之不同
+		// 第 k 帧之前逐字节相同。第 k 帧回指的数据在断档之前,不再可用,输出随之不同
 		nch := dx.Channels()
 		at := (k*1152 - (dx.lame.encDelay + decoderDelay)) * nch
 		if !slices.Equal(got[:at], want[:at]) {
@@ -154,7 +154,7 @@ func checkGapOnlyAt(t *testing.T, data []byte, n, k int) {
 	}
 }
 
-// 一串标签之后紧跟标签帧:标签与标签帧都在流中间,各算一个;第一处异常是那串标签的
+// 一串标签之后紧跟标签帧:标签与标签帧都在流中间,各算一个。第一处异常是那串标签的
 // 起点,断档标记只落在标签帧之后的那一帧。
 func TestMidstreamTagRunThenTagFrame(t *testing.T) {
 	x, starts, k := lameStream(t)
@@ -174,7 +174,7 @@ func TestMidstreamTagRunThenTagFrame(t *testing.T) {
 	t.Run("gap flag", func(t *testing.T) { checkGapOnlyAt(t, data, len(starts), k) })
 }
 
-// 流尾的标签帧前有一串标签时,两者都在流中间;跳过它们之后流在帧边界结束,那串标签
+// 流尾的标签帧前有一串标签时,两者都在流中间。跳过它们之后流在帧边界结束,那串标签
 // 不能再被记为尾部标签。
 func TestMidstreamTagRunThenTagFrameAtTheEnd(t *testing.T) {
 	x, starts, _ := lameStream(t)
@@ -187,7 +187,7 @@ func TestMidstreamTagRunThenTagFrameAtTheEnd(t *testing.T) {
 	}
 }
 
-// 流尾的标签帧被截断时,帧体不完整,无从确认它是标签帧:两种模式都按截断记入报告,
+// 流尾的标签帧被截断时,帧体不完整,无从确认它是标签帧,所以两种模式都按截断记入报告,
 // 不计入流中间的标签。
 func TestTruncatedTagFrameAtTheEnd(t *testing.T) {
 	x, starts, _ := lameStream(t)
@@ -212,7 +212,7 @@ func TestTruncatedTagFrameAtTheEnd(t *testing.T) {
 	}
 }
 
-// 标签帧在帧头(及 CRC)与标识之间不放 side information;音频帧的主数据恰好以
+// 标签帧在帧头(及 CRC)与标识之间不放 side information。音频帧的主数据恰好以
 // 标识开头时不算标签帧。
 func TestTagFrameMagic(t *testing.T) {
 	mono := mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0)    // MPEG-1 单声道 128k 44.1k:417 B,side info 17 B
@@ -249,7 +249,7 @@ func TestTagFrameMagic(t *testing.T) {
 	}
 }
 
-// 帧小得容不下 VBRI 的定长部分(26 字节)时,帧头后 32 字节处的 "VBRI" 只是音频数据:
+// 帧小得容不下 VBRI 的定长部分(26 字节)时,帧头后 32 字节处的 "VBRI" 只是音频数据。
 // 首帧与流中间的帧按同一条规则判断,不会一处当标签帧、另一处当音频。
 func TestTinyFrameHoldingMagicBytesIsAudio(t *testing.T) {
 	h := mkHeader(2, 1, 1, 2, 0, 0, 3, 0, 0) // MPEG-2 单声道 16 kbps 22.05 kHz:52 字节,36+26 > 52

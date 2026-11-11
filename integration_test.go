@@ -17,7 +17,7 @@ import (
 	"testing"
 )
 
-// decodeAll 以严格模式解码到流结束,任何错误都让用例失败;返回解码器与全部 PCM。
+// decodeAll 以严格模式解码到流结束,返回解码器与全部 PCM。任何错误都让用例失败。
 func decodeAll(t *testing.T, r io.Reader) (*Decoder, []float64) {
 	t.Helper()
 	d, err := NewDecoder(context.Background(), r, Strict())
@@ -72,9 +72,9 @@ func loadManifest(t *testing.T) []manifestEntry {
 }
 
 // 清单内每个样例都与 ffmpeg 参考输出逐样本比较,并核对格式、交付帧数与
-// 裁剪行为;新登记的样例自动纳入。边解码边比较,内存不随样例长度增长;
-// 5 分钟样例在 -short 下跳过。比较的是默认模式得到的输出,并要求报告干净:
-// 干净即同一码流在严格模式下成功且输出相同。
+// 裁剪行为。新登记的样例自动纳入。边解码边比较,内存不随样例长度增长。
+// 5 分钟样例在 -short 下跳过。比较的是默认模式得到的输出,并要求报告干净。
+// 报告干净即同一码流在严格模式下成功且输出相同。
 func TestEndToEndLavcCorpus(t *testing.T) {
 	for _, e := range loadManifest(t) {
 		name := strings.TrimSuffix(filepath.Base(e.File), ".mp3")
@@ -124,9 +124,9 @@ func TestEndToEndLavcCorpus(t *testing.T) {
 	}
 }
 
-// compareStream 边解码边与 f64le 参考逐样本比较,返回 RMS 与最大绝对误差;
-// 参考长度必须与解码输出恰好一致。RMS 分母为采样帧数,不小于任一声道的
-// RMS;NaN 比较恒为假,不先拦截会使误差门槛失效。
+// compareStream 边解码边与 f64le 参考逐样本比较,返回 RMS 与最大绝对误差。
+// 参考长度必须与解码输出恰好一致。RMS 分母为采样帧数,所以结果不小于任一
+// 声道的 RMS。NaN 比较恒为假,不先拦截会使误差门槛失效。
 func compareStream(d *Decoder, ref io.Reader) (rms, maxErr float64, err error) {
 	buf := make([]float64, 4096*d.Channels())
 	var b [8]byte
@@ -177,7 +177,8 @@ func float64Bytes(v []float64) []byte {
 	return b
 }
 
-// shine 编码器不写 Xing/LAME 标签:无 gapless 信息,不裁剪,交付全部 191 个音频帧。
+// shine 编码器不写 Xing/LAME 标签,所以无 gapless 信息,不裁剪,
+// 交付全部 191 个音频帧。
 func TestEndToEndUntrimmed(t *testing.T) {
 	d, _ := decodeAll(t, bytes.NewReader(readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")))
 	if d.Trimmed() {

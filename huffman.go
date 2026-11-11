@@ -8,17 +8,18 @@ import (
 // Huffman 解码。码表(huffman_tables.go)由 tools/huffgen 从 minimp3.h(CC0)
 // 提取的协议事实生成,均为完备前缀码。
 
-// huffDecoder 把码表展开为前缀查表:一级表以接下来 8 位为下标,码长 ≤ 8 的码字
-// 在一级表直接命中;更长的码字按 8 位前缀分组,每组一张以剩余位为下标的二级表。
+// huffDecoder 把码表展开为前缀查表。一级表以接下来 8 位为下标,码长 ≤ 8 的码字
+// 在一级表直接命中。更长的码字按 8 位前缀分组,每组一张以剩余位为下标的二级表。
 // 查表结构在 init 时由 huffman_tables.go 的码字列表推导,不含新的协议数据。
 type huffDecoder struct {
 	pair  [32]*huffFast
-	quadA [64]uint16 // 以 6 位为下标:码长<<8 | 标志位(vwxy)
+	quadA [64]uint16 // 以 6 位为下标,表项为 码长<<8 | 标志位(vwxy)
 	quadB [16]uint16 // 以 4 位为下标
 }
 
-// huffFast 是一张 big_values 表的两级查表。表项:叶子为 码长<<8 | x<<4 | y;
-// 子表指针为 1<<31 | 子表位数<<24 | 子表在 l2 中的偏移;0 表示无此码字。
+// huffFast 是一张 big_values 表的两级查表。叶子表项为 码长<<8 | x<<4 | y。
+// 子表指针表项为 1<<31 | 子表位数<<24 | 子表在 l2 中的偏移。
+// 表项为 0 表示无此码字。
 type huffFast struct {
 	l1 [256]uint32
 	l2 []uint32
@@ -90,7 +91,7 @@ func buildHuffFast(entries []huffEntry) *huffFast {
 }
 
 // decodePair 解码 big_values 区的一对谱值,含 linbits 扩展(值为 15 时)与
-// 非零值的符号位(0=正 1=负)。表 0 没有码字:区域内谱值全为 0、不读位。
+// 非零值的符号位(0=正 1=负)。表 0 没有码字,也就是区域内谱值全为 0、不读位。
 func (d *huffDecoder) decodePair(br *bitReader, table int) (int, int, error) {
 	if table == 0 {
 		return 0, 0, nil
@@ -158,7 +159,7 @@ func decodeQuad(br *bitReader, tableB bool, limit int) ([4]int, bool) {
 		e = huff.quadA[peek>>26]
 	}
 	n := int(e >> 8)
-	// 两张表都是完备前缀码;低 4 位各表示一个必须读取符号位的非零值。
+	// 两张表都是完备前缀码。低 4 位各表示一个必须读取符号位的非零值。
 	total := n + bits.OnesCount8(uint8(e))
 	if br.pos+total > limit {
 		return [4]int{}, false

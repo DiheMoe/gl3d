@@ -51,9 +51,10 @@ func TestReservoirKeepsExactSuffix(t *testing.T) {
 }
 
 // 码流可以从中途开始(例如不重编码的剪切),开头几帧的 main_data_begin 指向流开始之前
-// 的数据。数据起点早于流内第一个 main data 字节的 granule 输出静音;MPEG-1 第二个
-// granule 置了 scfsi、而第一个 granule 缺数据时同样静音;其余照常解码,输出长度不变。
-// 静音之后再过两个 granule,重叠与合成状态已与从头解码一致,输出逐位相同。
+// 的数据。数据起点早于流内第一个 main data 字节的 granule 输出静音。MPEG-1 第二个
+// granule 置了 scfsi、而第一个 granule 缺数据时,第二个 granule 同样静音。其余
+// granule 照常解码,输出长度不变。静音之后再过两个 granule,重叠与合成状态已与从头
+// 解码一致,输出逐位相同。
 func TestStreamStartingMidReservoir(t *testing.T) {
 	cases := []struct {
 		file   string
@@ -63,13 +64,13 @@ func TestStreamStartingMidReservoir(t *testing.T) {
 		{"pluck-stereo-44k1-abr128-lame.mp3", 9, 1}, // 只有 granule 0 缺数据
 		{"pluck-stereo-44k1-abr128-lame.mp3", 3, 2}, // granule 1 经 scfsi 依赖 granule 0
 		{"sine440-mono-44k1-cbr96.mp3", 8, 4},       // 缺数据延续到第二帧
-		{"pluck-stereo-24k-cbr64-lame.mp3", 7, 2},   // MPEG-2:每帧一个 granule
+		{"pluck-stereo-24k-cbr64-lame.mp3", 7, 2},   // MPEG-2,每帧一个 granule
 		{"pluck-stereo-8k-cbr16-lame.mp3", 3, 1},    // MPEG-2.5
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s@%d", tc.file, tc.cut), func(t *testing.T) {
 			data := readCorpus(t, tc.file)
-			// 对照流也去掉标签与 Info 帧:两者都不做 gapless 裁剪,样本按帧对齐
+			// 对照流也去掉标签与 Info 帧,这样两者都不做 gapless 裁剪,样本按帧对齐
 			starts, end := audioFrames(t, data)
 			_, whole := decodeAll(t, bytes.NewReader(data[starts[0]:end]))
 			d, pcm := decodeAll(t, bytes.NewReader(data[starts[tc.cut]:end]))
@@ -100,7 +101,7 @@ func TestStreamStartingMidReservoir(t *testing.T) {
 func TestGranuleStartingAtFirstMainDataByte(t *testing.T) {
 	data := buildL3Stream(t, 3, 0, [][2][2]l3Gran{{{}, {{lines: []int{1, -1, 1, 0}}}}})
 	// 单声道 side info:main_data_begin 回指 1 字节,granule 0 声明 8 位,
-	// 恰好整个落在流开始之前;granule 1 从本帧 main data 的第一个字节开始
+	// 恰好整个落在流开始之前。granule 1 从本帧 main data 的第一个字节开始
 	si := data[4:]
 	setBits(si, 0, 9, 1)
 	setBits(si, 18, 12, 8)

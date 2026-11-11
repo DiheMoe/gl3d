@@ -13,7 +13,7 @@ func TestHuffmanRoundTripAllTables(t *testing.T) {
 		for _, e := range entries {
 			var w bitWriter
 			w.write(int(e.code), int(e.length))
-			// 码字之后,每个值先写 linbits 扩展位、再写符号位(非零时);x 先于 y
+			// 码字之后,每个值先写 linbits 扩展位、再写符号位(非零时),x 先于 y
 			extX, extY := 0, 0
 			maxExt := (1 << linbits) - 1
 			if e.x == 15 && linbits > 0 {
@@ -81,8 +81,8 @@ func TestHuffmanQuadRoundTrip(t *testing.T) {
 	}
 }
 
-// 表 0 没有码字:所在区域谱值全为 0、不消耗任何位。编码器对零能量区域会
-// 合法地选择表 0,必须按全零接受,不能当作非法表。
+// 表 0 没有码字,所以用表 0 的区域谱值全为 0、不消耗任何位。编码器对零能量
+// 区域会合法地选择表 0,必须按全零接受,不能当作非法表。
 func TestHuffmanTable0IsZeroWithoutBits(t *testing.T) {
 	br := &bitReader{data: []byte{0xFF, 0xFF}}
 	for i := 0; i < 3; i++ {
@@ -105,7 +105,8 @@ func TestHuffmanErrors(t *testing.T) {
 		}
 	}
 	// 全部 big_values 表都是完备前缀码,任意位模式都能匹配某个码字,不存在
-	// "非法码字"输入;非法 Huffman 数据只能靠位流耗尽或 part2_3_length 越界检出。
+	// "非法码字"输入。非法 Huffman 数据只能靠位流耗尽或 part2_3_length
+	// 越界检出。
 	br3 := &bitReader{data: []byte{0x0F}}
 	if _, _, err := huff.decodePair(br3, 13); err == nil {
 		t.Fatal("want error for bitstream underrun")

@@ -38,7 +38,7 @@ func TestSlenTable(t *testing.T) {
 }
 
 func TestReadScalefactorsMPEG1Long(t *testing.T) {
-	// 长块,sfc=6 → slen1=1、slen2=2;分段 {6,5,5,5},无 scfsi
+	// 长块,sfc=6 → slen1=1、slen2=2,分段 {6,5,5,5},无 scfsi
 	var w bitWriter
 	vals := []int{1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3}
 	for i, v := range vals {
@@ -62,7 +62,7 @@ func TestReadScalefactorsMPEG1Long(t *testing.T) {
 }
 
 func TestReadScalefactorsScfsiReuse(t *testing.T) {
-	// granule 1 且 scfsi[0]=1:第 0 组(6 带)复用 granule 0,不读位;
+	// granule 1 且 scfsi[0]=1 时,第 0 组(6 带)复用 granule 0,不读位。
 	// 组 1 为 5 带 × 1 位,组 2、3 为 5 带 × 2 位(sfc=6)
 	var w bitWriter
 	for _, v := range []int{1, 0, 1, 0, 1} {
@@ -89,7 +89,7 @@ func TestReadScalefactorsScfsiReuse(t *testing.T) {
 }
 
 func TestLSFScfSizes(t *testing.T) {
-	// 混合基数展开;变体 = 消费行数 × 4(与 minimp3 的退出语义一致)。
+	// 混合基数展开。变体 = 消费行数 × 4(与 minimp3 的退出语义一致)。
 	// sfc=0:消费行 0 后 sfc<0 → 变体 4,尺寸全 0
 	sizes, variant, err := lsfScfSizes(0, false)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestLSFScfSizes(t *testing.T) {
 	if sizes != [4]int{0, 0, 0, 0} || variant != 4 {
 		t.Fatalf("sfc=0: %v/%d, want [0 0 0 0]/4", sizes, variant)
 	}
-	// sfc=500 → 消费 3 行 → 变体 12;最终尺寸 {0,0,0,0}
+	// sfc=500 → 消费 3 行 → 变体 12,最终尺寸 {0,0,0,0}
 	s2, v2, err := lsfScfSizes(500, false)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestLSFScfSizes(t *testing.T) {
 	}
 }
 
-// 反量化逐条谱线符合 ISO 11172-3 §2.4.3.4 的公式:覆盖长/短/混合块、
+// 反量化逐条谱线符合 ISO 11172-3 §2.4.3.4 的公式。用例覆盖长/短/混合块、
 // subblock_gain、preflag(pretab)、scalefac_scale 与 linbits 范围的大值。
 func TestDequantizeMatchesFormula(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
@@ -174,8 +174,8 @@ func TestDequantizeMatchesFormula(t *testing.T) {
 }
 
 func TestIntensityPanFormula(t *testing.T) {
-	// pos 3 为正中间:kl = kr = 0.5。arm64 上编译器把 math.Tan 内的乘加融合为
-	// FMA,tan(π/4) 末位可差 1 ulp,故这里用容差而不是逐位比较。
+	// pos 3 为正中间,也就是 kl = kr = 0.5。arm64 上编译器把 math.Tan 内的
+	// 乘加融合为 FMA,tan(π/4) 末位可差 1 ulp,故这里用容差而不是逐位比较。
 	kl, kr := intensityPan(3)
 	if math.Abs(kl-0.5) > 1e-15 || math.Abs(kr-0.5) > 1e-15 {
 		t.Fatalf("pos 3: (%.17g,%.17g), want 0.5", kl, kr)
@@ -223,8 +223,8 @@ func TestDecodeSpectraEnforcesBitBudgets(t *testing.T) {
 	}
 }
 
-// 该帧恰好在 count1 的不完整码字后结束。后面是否还能预读下一帧不应
-// 改变 stuffing 的解释;两帧都只编码零谱线,应完整交付 2304 个静音样本。
+// 每帧都恰好在 count1 的不完整码字后结束。后面是否还能预读下一帧不应
+// 改变 stuffing 的解释。两帧都只编码零谱线,应完整交付 2304 个静音样本。
 func TestCount1StuffingAtPhysicalWindowEnd(t *testing.T) {
 	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 3, 0, 0), 417, 2)
 	for _, off := range []int{0, 417} {
@@ -302,7 +302,7 @@ func TestDequantizeGainExtremes(t *testing.T) {
 }
 
 // 构造只含右声道第 96 条非零谱线的 LSF 流。intensity 版本在右声道
-// 使用 compress=502,scalefactor 全零;普通 stereo 版本使用 compress=0。
+// 使用 compress=502,scalefactor 全零。普通 stereo 版本使用 compress=0。
 // 右声道的非零频带不会执行 intensity pan,两条流的有效频谱应完全相同。
 func lsfPreflagStream(t *testing.T, versionBits int, intensity bool) []byte {
 	t.Helper()

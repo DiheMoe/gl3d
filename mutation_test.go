@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// mutateStream 按种子对 data 做一次变异并返回新切片,不改动也不引用 data:
+// mutateStream 按种子对 data 做一次变异并返回新切片,不改动也不引用 data。
 // 翻转一个字节、删除、插入、截断、改写五种操作由 r%5 选择,位置与长度取自 r 之后的
 // splitmix64 序列。
 func mutateStream(data []byte, seed, i uint64) []byte {
@@ -55,10 +55,11 @@ func TestStreamMutationSmoke(t *testing.T) {
 		"pluck-stereo-24k-cbr64-lame.mp3",
 		"mixed-mono-8k-cbr64-built.mp3",
 	} {
-		// 取前 8 KiB 并收到最后一个完整帧的末尾:截在帧中间则每个输入都以截断结束。
+		// 取前 8 KiB 并收到最后一个完整帧的末尾,因为截在帧中间则每个输入都以截断结束。
 		data := readCorpus(t, name)
 		starts, end := audioFrames(t, data[:min(8<<10, len(data))])
-		// 去掉 Xing/Info/VBRI 标签帧(保留其前的 ID3v2):它声明的帧数多于截短后的输入,未变异的输入因此不干净。
+		// 去掉 Xing/Info/VBRI 标签帧,保留其前的 ID3v2。因为标签帧声明的帧数多于截短后的输入,
+		// 不去掉的话,未变异的输入就不干净。
 		tagEnd := id3v2Len(t, data)
 		data = append(append([]byte(nil), data[:tagEnd]...), data[starts[0]:end]...)
 		seed := uint64(k + 1)

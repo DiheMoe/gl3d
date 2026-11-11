@@ -5,7 +5,7 @@ import (
 )
 
 // scalefactor 读取与反量化。带宽、分区与混合基数表是 tabgen 生成的协议事实
-// (sfb_tables.go);本文件只含算法,不含表数据。
+// (sfb_tables.go)。本文件除 scfSlen 外只含算法,不含表数据。
 
 type blockShape int
 
@@ -16,13 +16,13 @@ const (
 )
 
 // scfSlen 是 MPEG-1 scalefac_compress 到两段 scalefactor 位宽 (slen1, slen2)
-// 的映射表,取值与 mpg123/minimp3 的同名表逐项一致。
+// 的映射表,取值与 mpg123 的 slen 表、minimp3 的 g_scfc_decode 表逐项一致。
 var scfSlen = [2][16]int{
 	{0, 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4},
 	{0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 3, 1, 2, 3, 2, 3},
 }
 
-// pretab 是 MPEG-1 preflag 对长块 scalefactor 带的附加增益表。
+// pretab 是 preflag 对长块 scalefactor 带的附加增益表。
 var pretab [22]int
 
 func init() {
@@ -31,7 +31,7 @@ func init() {
 	}
 }
 
-// srSfbRow 把版本与版本内采样率序号映射到 sfb 带宽表的行;
+// srSfbRow 把版本与版本内采样率序号映射到 sfb 带宽表的行。
 // MPEG-2.5 的 11025 Hz 与 12000 Hz 共用一行。
 func srSfbRow(v mpegVersion, srIdx int) int {
 	base := 0
@@ -97,7 +97,7 @@ func mixedWidths(row, nLong int) []uint8 {
 	return append(w, sfbShortWidths[row][9:39]...)
 }
 
-// buildBandMap 从带宽表构建映射。nLong+nShort 为有效带数;短块部分按窗口交错。
+// buildBandMap 从带宽表构建映射。nLong+nShort 为有效带数。短块部分按窗口交错。
 func buildBandMap(widths []uint8, nLong, nShort int, long bool) *bandMap {
 	bm := &bandMap{scfLen: nLong + nShort}
 	pos := 0
@@ -119,7 +119,7 @@ func buildBandMap(widths []uint8, nLong, nShort int, long bool) *bandMap {
 	for i := 0; i < nLong; i++ {
 		addBand(int(widths[i]), 0, false)
 	}
-	// 短块部分:带宽按 (带,窗口) 交错存储,每带连续 3 个窗口宽度;
+	// 短块部分:带宽按 (带,窗口) 交错存储,每带连续 3 个窗口宽度。
 	// 同时记录重排参数(imdct.go reorderShortPart 用)
 	posA := 0
 	for i := 0; i < nLong; i++ {
@@ -144,8 +144,8 @@ func buildBandMap(widths []uint8, nLong, nShort int, long bool) *bandMap {
 	return bm
 }
 
-// lsfScfSizes 把 LSF 9 位 scalefac_compress 展开为 4 段 scalefactor 位宽和分区
-// 变体(混合基数分解;intensity 右声道的字段先右移 1 位,变体行号偏移 12)。
+// lsfScfSizes 用混合基数分解把 LSF 9 位 scalefac_compress 展开为 4 段 scalefactor
+// 位宽和分区变体。intensity 右声道的字段先右移 1 位,变体行号偏移 12。
 // 变体 = 消费的行数 × 4,匹配成功的一行也计入(minimp3 的循环退出语义)。
 func lsfScfSizes(sfc int, intensityR bool) ([4]int, int, error) {
 	var sizes [4]int
@@ -185,10 +185,10 @@ func scfShapeRow(shape blockShape) int {
 
 // readScalefactors 读取一个 granule/声道的 scalefactor 序列。每帧第二个
 // granule 中 scfsi 置位的组复用第一个 granule 的值、不再占位(仅 MPEG-1 有
-// scfsi);短块与混合块的组 1、2 永不复用(minimp3 同款约束)。intensityR 为
-// LSF intensity stereo 的右声道:ist 中带内全 1 的哨兵改写为 -1,表示该带不做
-// intensity。结果写入 scf(长度为该块形的 scf 数)与 ist(仅 intensityR 时
-// 使用);返回实际传输的带数,其后为哨兵带(值为 0)。
+// scfsi)。短块与混合块的组 1、2 永不复用(minimp3 同款约束)。intensityR 为
+// intensity stereo 的右声道。LSF 时 ist 中带内全 1 的哨兵改写为 -1,表示该带
+// 不做 intensity。结果写入 scf(长度为该块形的 scf 数)与 ist(仅 intensityR 时
+// 使用)。返回实际传输的带数,其后为哨兵带(值为 0)。
 func readScalefactors(br *bitReader, v mpegVersion, gi *granuleInfo, scfsi [4]int, shape blockShape, granule2 bool, prevScf []int, intensityR bool, scf, ist []int) (int, error) {
 	prow := scfShapeRow(shape)
 	var sizes [4]int
@@ -249,10 +249,11 @@ func readScalefactors(br *bitReader, v mpegVersion, gi *granuleInfo, scfsi [4]in
 	return pos, nil
 }
 
-// regionBounds 返回三个 region 的谱线边界。长块与起始/结束块:regionCount 以长块
-// sfb 带为单位;纯短块以交错的 (带,窗) 条目为单位——regionCount0=8 即 9 条目 =
+// regionBounds 返回三个 region 的谱线边界。长块与起始/结束块的 regionCount 以长块
+// sfb 带为单位。纯短块以交错的 (带,窗) 条目为单位,regionCount0=8 即 9 条目 =
 // 3 带 × 3 窗,与 mpg123/dist10 的固定边界等价。块类型 2 的混合块 region0 止于
-// 长块区上端,与 FFmpeg 相同:按条目计数在 LSF 的混合带上会越过长块区。
+// 长块区上端,与 FFmpeg 相同。不这样截断的话,按条目计数的 region0 在 LSF 的
+// 混合带上会越过长块区。
 func regionBounds(gi *granuleInfo, bm *bandMap) [4]int {
 	maxEntry := len(bm.sfbStart) - 1
 	clamp := func(b int) int {
@@ -273,15 +274,15 @@ func regionBounds(gi *granuleInfo, bm *bandMap) [4]int {
 type granuleSpectrum struct {
 	xr          [576]float64
 	scf         [40]int
-	ist         [40]int // 仅 intensity 右声道(hasIst):LSF 带内全 1 哨兵为 -1
+	ist         [40]int // 仅 intensity 右声道(hasIst)。LSF 带内全 1 哨兵为 -1
 	hasIst      bool
-	transmitted int // 实际传输的 scf 带数;0 表示 scalefactor 出错已置零,processStereo 据此不做 intensity
+	transmitted int // 实际传输的 scf 带数。0 表示 scalefactor 出错已置零,processStereo 据此不做 intensity
 }
 
 // decodeSpectra 解码并反量化一个 granule/channel 的 576 条谱线。位消耗以
-// part2_3_length 为硬上限,超出即格式损坏;末尾不足一个完整 count1 四元组的位作为
-// stuffing 丢弃。出错时 gs 仍是确定的频谱:part2_3_length 越过实际数据或 scalefactor
-// 出错时整个 granule 置零,谱数据出错保留此前完整解出的谱线、余下置零;读位置总是
+// part2_3_length 为硬上限,超出即格式损坏。末尾不足一个完整 count1 四元组的位作为
+// stuffing 丢弃。出错时 gs 仍是确定的频谱。part2_3_length 越过实际数据或 scalefactor
+// 出错时整个 granule 置零,谱数据出错保留此前完整解出的谱线、余下置零。读位置总是
 // 停在本 granule 的结尾,调用方容错后可以接着解码。
 func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *bandMap, shape blockShape, prevScf []int, intensityR bool, gs *granuleSpectrum) error {
 	gi := &si.gr[gr][ch]
@@ -311,7 +312,7 @@ func decodeSpectra(h *frameHeader, si *sideInfo, gr, ch int, br *bitReader, bm *
 	return err
 }
 
-// decodeHuffman 解出 big_values 区与 count1 区的量化值写入 is,返回有值的谱线数;出错时
+// decodeHuffman 解出 big_values 区与 count1 区的量化值写入 is,返回有值的谱线数。出错时
 // 返回此前完整解出的谱线数与错误。
 func decodeHuffman(br *bitReader, gi *granuleInfo, bm *bandMap, limit int, is *[576]int) (int, error) {
 	pos := 0
@@ -331,7 +332,7 @@ func decodeHuffman(br *bitReader, gi *granuleInfo, bm *bandMap, limit int, is *[
 		is[pos], is[pos+1] = x, y
 		pos += 2
 	}
-	// count1 四元组,直到 granule 位耗尽;跨界四元组丢弃(参考实现一致行为)
+	// count1 四元组,直到 granule 位耗尽。跨界四元组丢弃(参考实现一致行为)
 	for pos+4 <= 576 && br.pos < limit {
 		q, complete := decodeQuad(br, gi.count1Table == 1, limit)
 		if !complete {
@@ -344,12 +345,12 @@ func decodeHuffman(br *bitReader, gi *granuleInfo, bm *bandMap, limit int, is *[
 }
 
 // pow43[n] = n^(4/3),覆盖 big_values 的最大幅度 15 + 2^13 − 1 = 8206
-// (linbits 至多 13 位);init 按公式生成。
+// (linbits 至多 13 位)。init 按公式生成。
 var pow43 [8207]float64
 
 // 增益指数是 q/4。global_gain 为 0..255,scalefactor 至多 31(LSF 最宽
 // 5 位),scalefac_scale 为 0..1,subblock_gain 为 0..7,pretab 至多 3。
-// 短区 q >= -210-8*7-4*31 = -390;长区 q >= -210-4*(31+3) = -346;
+// 短区 q >= -210-8*7-4*31 = -390。长区 q >= -210-4*(31+3) = -346。
 // 两者 q <= 255-210 = 45。字段范围由帧头/side info/读位宽度保证。
 const minGainQuarter, maxGainQuarter = -390, 45
 
@@ -366,7 +367,7 @@ func init() {
 
 // dequantize 反量化并写入 xr 全部 576 条谱线:
 // xr[i] = sign(is)·|is|^(4/3) · 2^((global_gain−210−8·subblock_gain[w])/4 − (scalefac_scale+1)·scf/2),
-// 长块 preflag 另加 pretab。增益按 scalefactor 带计算一次;nz 之后的谱线为 0。
+// 长块 preflag 另加 pretab。增益按 scalefactor 带计算一次。nz 之后的谱线为 0。
 func dequantize(gi *granuleInfo, bm *bandMap, scf []int, is *[576]int, nz int, xr *[576]float64) {
 	var gain [40]float64
 	sfs := 2 * (gi.scalefacScale + 1)

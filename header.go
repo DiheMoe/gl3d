@@ -44,7 +44,7 @@ type frameHeader struct {
 	padding         int
 	channelMode     channelMode
 	modeExt         int // 仅 joint stereo 有效:bit0 intensity stereo,bit1 MS stereo
-	emphasis        int // 0 为无;非零时解码器不做去加重
+	emphasis        int // 0 为无。非零时解码器不做去加重
 	frameSize       int // 含帧头的整帧字节数
 	sideInfoSize    int
 	samplesPerFrame int // 每声道采样数:MPEG-1 为 1152,MPEG-2/2.5 为 576
@@ -63,7 +63,7 @@ var bitrateTableLSF = [16]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128
 
 var sampleRateTable = [3]int{44100, 48000, 32000}
 
-// Layer I/II 的码率表(kbps),只用于由帧长确认范围外格式的流;LSF 的 Layer II 与
+// Layer I/II 的码率表(kbps),只用于由帧长确认范围外格式的流。LSF 的 Layer II 与
 // Layer III 共用 bitrateTableLSF。
 var (
 	bitrateLayer1MPEG1 = [16]int{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0}
@@ -71,8 +71,8 @@ var (
 	bitrateLayer1LSF   = [16]int{0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0}
 )
 
-// layerFrameSize 返回 b 处帧头的帧长(字节),Layer I、II、III 都按各自的规则计算;
-// free format 或无效帧头返回 0。
+// layerFrameSize 返回 b 处帧头的帧长(字节),Layer I、II、III 都按各自的规则计算。
+// free format,或同步位、版本、层、码率、采样率无效时返回 0。emphasis 不检查。
 func layerFrameSize(b [4]byte) int {
 	if b[0] != 0xFF || b[1]&0xE0 != 0xE0 {
 		return 0
@@ -114,8 +114,8 @@ func layerFrameSize(b [4]byte) int {
 }
 
 // plausibleLayer3 报告 b 起点是否是有效的 Layer III 帧头,与 parseFrameHeader 是否成功
-// 一致。它是廉价的预检,不分配内存:parseFrameHeader 每次失败都分配一个错误,逐字节
-// 试探垃圾时先用它排除。
+// 一致。它是廉价的预检,不分配内存。parseFrameHeader 每次失败都分配一个错误,所以逐字节
+// 试探垃圾时先用 plausibleLayer3 排除。
 func plausibleLayer3(b []byte) bool {
 	return len(b) >= 4 && b[1]&0x06 == 0x02 && b[3]&3 != 2 && layerFrameSize([4]byte(b)) != 0
 }
@@ -202,7 +202,7 @@ func parseFrameHeader(b [4]byte) (frameHeader, error) {
 // Layer III 的覆盖范围是帧头第 16–31 位加整个 side information。
 func crc16(data []byte) uint16 { return crc16Update(0xFFFF, data) }
 
-// crc16Update 在已有校验值上继续累积 data;CRC 覆盖范围不连续,须分段计算。
+// crc16Update 在已有校验值上继续累积 data。CRC 覆盖范围不连续,须分段计算。
 func crc16Update(crc uint16, data []byte) uint16 {
 	for _, b := range data {
 		crc ^= uint16(b) << 8

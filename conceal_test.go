@@ -8,7 +8,8 @@ import (
 	"testing"
 )
 
-// big_values 区越过 part2_3_length:保留界内完整解出的谱线,余下置零,读位置停在 granule 结尾。
+// big_values 区越过 part2_3_length 时,保留界内完整解出的谱线,余下置零,
+// 读位置停在 granule 结尾。
 func TestDecodeSpectraHuffmanOverrunLeavesConcealedSpectrum(t *testing.T) {
 	lines := []int{1, 1, 1, 0, 0, 1, 1, 1}
 	var w bitWriter
@@ -48,12 +49,13 @@ func TestDecodeSpectraHuffmanOverrunLeavesConcealedSpectrum(t *testing.T) {
 	}
 }
 
-// scalefactor 越过 part2_3_length:整个 granule 置零,scalefactor 清零,读位置停在 granule 结尾。
+// scalefactor 越过 part2_3_length 时,整个 granule 置零,scalefactor 清零,
+// 读位置停在 granule 结尾。
 func TestDecodeSpectraScalefactorOverrunZeroesGranule(t *testing.T) {
 	h := &frameHeader{version: mpeg1, srIdx: 0}
 	si := &sideInfo{}
 	si.gr[0][0] = granuleInfo{part2_3Length: 10, bigValues: 0, globalGain: 210, scalefacCompress: 15,
-		regionCount: [2]int{7, 7}} // slen (4, 3):scalefactor 共 74 位
+		regionCount: [2]int{7, 7}} // slen 为 (4, 3),所以 scalefactor 共 74 位
 	for _, intensityR := range []bool{false, true} {
 		br := &bitReader{data: bytes.Repeat([]byte{0xA5}, 64)}
 		var gs granuleSpectrum
@@ -76,8 +78,8 @@ func TestDecodeSpectraScalefactorOverrunZeroesGranule(t *testing.T) {
 	}
 }
 
-// concealCase 对 data 分别以严格、宽松模式解码:严格模式必须以第 frame 帧的 CorruptError
-// 结束;宽松模式必须成功,第一处异常是第 frame 帧(偏移为帧起点)的 corrupt,输出全部有限。
+// concealCase 对 data 分别以严格、宽松模式解码。严格模式必须以第 frame 帧的 CorruptError
+// 结束。宽松模式必须成功,第一处异常是第 frame 帧(偏移 at 为帧起点)的 corrupt,输出全部有限。
 func concealCase(t *testing.T, data []byte, frame int, at int) (*Decoder, []float64) {
 	t.Helper()
 	_, _, err := decodeMode(t, bytes.NewReader(data), Strict())
@@ -101,7 +103,7 @@ func concealCase(t *testing.T, data []byte, frame int, at int) (*Decoder, []floa
 	return d, pcm
 }
 
-// CRC 不符:宽松模式照常解码,输出与完好的流相同。
+// CRC 不符时,宽松模式照常解码,输出与完好的流相同。
 func TestConcealCRCMismatch(t *testing.T) {
 	data := readCorpus(t, "pluck-stereo-32k-cbr96-crc-lame.mp3")
 	_, intact, err := decodeMode(t, bytes.NewReader(data), lenient())
@@ -120,8 +122,8 @@ func TestConcealCRCMismatch(t *testing.T) {
 	}
 }
 
-// side info 非法:宽松模式丢弃这一帧,main data 仍进入 bit reservoir;再过一帧,解码器状态
-// 与完好的流重合,此后的输出与完好的流晚一帧的输出逐字节相同。
+// side info 非法时,宽松模式丢弃这一帧,main data 仍进入 bit reservoir。再过一帧,解码器
+// 状态与完好的流重合,此后的输出与完好的流晚一帧的输出逐字节相同。
 func TestConcealInvalidSideInfo(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	_, intact, err := decodeMode(t, bytes.NewReader(data), Strict())
@@ -144,8 +146,8 @@ func TestConcealInvalidSideInfo(t *testing.T) {
 	}
 }
 
-// intensity stereo 的右声道 scalefactor 出错被置零后没有位置可用:各带按 intensity 界限以下
-// 处理——不做 MS 时左声道原样、右声道为零,做 MS 时两声道同为左声道的 1/√2。
+// intensity stereo 的右声道 scalefactor 出错被置零后没有位置可用,各带按 intensity 界限以下
+// 处理。因此不做 MS 时左声道原样、右声道为零,做 MS 时两声道同为左声道的 1/√2。
 func TestProcessStereoWithoutTransmittedScalefactors(t *testing.T) {
 	h := &frameHeader{version: mpeg1, channelMode: modeJointStereo}
 	for _, tc := range []struct {
@@ -170,8 +172,8 @@ func TestProcessStereoWithoutTransmittedScalefactors(t *testing.T) {
 	}
 }
 
-// intensity 立体声帧的右声道 scalefactor 越过 part2_3_length:宽松模式记入报告,整个 granule
-// 置零后接着解码,不因没有 intensity 位置而越界。
+// intensity 立体声帧的右声道 scalefactor 越过 part2_3_length 时,宽松模式记入报告,整个
+// granule 置零后接着解码,不因没有 intensity 位置而越界。
 func TestConcealIntensityStereoRightScalefactors(t *testing.T) {
 	body := make([]byte, 400)
 	setBits(body, 79, 12, 1)  // gr0/ch1 的 part2_3_length 只剩 1 位

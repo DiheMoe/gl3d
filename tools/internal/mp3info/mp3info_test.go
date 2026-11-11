@@ -206,7 +206,7 @@ func TestParseCorpusGolden(t *testing.T) {
 }
 
 // 首帧是 Info 标签帧时,标签帧帧头的声道模式可能与音频帧不同(FFmpeg 写出的
-// Info 帧为 stereo,音频帧为 joint stereo);Audio 描述第一个音频帧。
+// Info 帧为 stereo,音频帧为 joint stereo)。Audio 描述第一个音频帧。
 func TestParseFirstAudioFrameAfterInfo(t *testing.T) {
 	var data []byte
 	data = append(data, header(3, 11, 0, 0, 0)...) // Info 帧:MPEG-1 192k 44.1k stereo,626 B

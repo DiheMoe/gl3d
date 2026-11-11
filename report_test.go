@@ -21,14 +21,14 @@ func drainReport(t *testing.T, d *Decoder) (Report, error) {
 	}
 }
 
-// 完整的流:帧数与声明一致,没有异常。Report 在 NewDecoder 返回后、解码之前就可查;
+// 完整的流:帧数与声明一致,没有异常。Report 在 NewDecoder 返回后、解码之前就可查。
 // VBRI 与 Xing 同等对待,标签帧本身不解码为音频。
 func TestReportCleanStream(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		data     []byte
 		declared int64
-		frames   int64 // 解码出的采样帧数(每帧 1152);Info 流有首尾裁剪,不在此断言
+		frames   int64 // 解码出的采样帧数(每帧 1152)。Info 流有首尾裁剪,不在此断言
 	}{
 		{"Info 193 frames", readCorpus(t, "sine440-stereo-44k1-cbr192.mp3"), 193, -1},
 		{"VBRI 5 frames", vbriStream(5, 5), 5, 5 * 1152},
@@ -56,7 +56,7 @@ func TestReportCleanStream(t *testing.T) {
 }
 
 // 每一种终止解码的格式错误都要在报告里留下类别、帧号与偏移。偏移取自帧头解析
-// 与 len,不手算;各例还断言终止错误的类型与文本,保证输入确实走到了预期的分支,
+// 与 len,不手算。各例还断言终止错误的类型与文本,保证输入确实走到了预期的分支,
 // 而不是碰巧得到同样的位置。
 func TestReportPinsTerminalIssues(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -79,7 +79,7 @@ func TestReportPinsTerminalIssues(t *testing.T) {
 
 	vbri := vbriStream(6, 5) // 声明 6 帧,实有 5 帧
 
-	// 构造同 TestGaplessPaddingExceedsDecodedLenient:声明的尾部填充超过可裁剪的输出
+	// 构造同 TestGaplessPaddingExceedsDecodedLenient。声明的尾部填充超过可裁剪的输出
 	padded := readCorpus(t, "short-tone-stereo-44k1-cbr192.mp3") // Info 声明 3 帧
 	pp, _, plo := infoFrame(t, padded)
 	padded[pp+plo+22] |= 0x0F // enc_padding = 0xFFF
@@ -89,11 +89,11 @@ func TestReportPinsTerminalIssues(t *testing.T) {
 	cases := []struct {
 		name    string
 		data    []byte
-		want    Report // First 必须非 nil;TrailingTags 不写即为 0:这些例子都没有取得完整的 ID3v1 标签
+		want    Report // First 必须非 nil。TrailingTags 不写即为 0,因为这些例子里都没有止于流尾的标签
 		errText string // 终止错误的文本须包含它
 	}{
 		{
-			// 分帧层此时已交出 6 帧(含出错的第 5 帧),解码器只解码了 5 帧:AudioFrames 取后者
+			// 分帧层此时已交出 6 帧(含出错的第 5 帧),解码器只解码了 5 帧。AudioFrames 取后者
 			name: "CRC mismatch at frame 5",
 			data: crc,
 			want: Report{
@@ -104,8 +104,8 @@ func TestReportPinsTerminalIssues(t *testing.T) {
 			errText: "CRC",
 		},
 		{
-			// 第 190 帧是原文件的最后一帧,它后面的同步丢失在交出它之前就被发现:
-			// 这一帧被扣下、没有解码,不计入已解码的帧数
+			// 第 190 帧是原文件的最后一帧,它后面的同步丢失在交出它之前就被发现,
+			// 所以这一帧被扣下、没有解码,不计入已解码的帧数
 			name: "lost sync after frame",
 			data: append(bytes.Clone(shine), make([]byte, 16)...),
 			want: Report{
@@ -155,7 +155,7 @@ func TestReportPinsTerminalIssues(t *testing.T) {
 		},
 		{
 			name: "Xing declares one frame too many",
-			data: info[:infoStarts[192]], // 在最后一帧的起点截断:流在帧边界结束,但帧数少于声明
+			data: info[:infoStarts[192]], // 在最后一帧的起点截断,所以流在帧边界结束,但帧数少于声明
 			want: Report{
 				DeclaredFrames: 193,
 				AudioFrames:    192,
@@ -249,7 +249,7 @@ func TestReportFirstIsACopy(t *testing.T) {
 	}
 }
 
-// 字段名与零值不输出是对外的日志接口;尾部标签五种全置,顺便固定 tagNames 的输出顺序。
+// 字段名与零值不输出是对外的日志接口。尾部标签五种全置,顺便固定 tagNames 的输出顺序。
 func TestReportLogValue(t *testing.T) {
 	var out bytes.Buffer
 	r := Report{DeclaredFrames: 193, AudioFrames: 190, DroppedFrames: 3, ConcealedGranules: 5, CRCErrors: 2, SkippedBytes: 4096, Resyncs: 2, MidstreamTags: 2, Truncated: true, Emphasis: 1, TrailingTags: TagID3v1 | TagID3v1Ext | TagAPEv2 | TagLyrics3 | TagID3v2, First: &Issue{Kind: IssueCorrupt, Frame: 190, Offset: 1234}}

@@ -64,8 +64,8 @@ func TestParseFrameHeaderValid(t *testing.T) {
 	}
 }
 
-// plausibleLayer3 对同步字之后的每一种帧头取值都与 parseFrameHeader 是否成功一致:
-// 它只是不分配内存的预检,不能拒绝可以解析的帧头,也不能放过解析不了的。
+// plausibleLayer3 对同步字之后的每一种帧头取值都与 parseFrameHeader 是否成功一致,
+// 因为它只是不分配内存的预检,不能拒绝可以解析的帧头,也不能放过解析不了的。
 func TestPlausibleLayer3MatchesParse(t *testing.T) {
 	for v := 0; v < 1<<21; v++ {
 		b := [4]byte{0xFF, 0xE0 | byte(v>>16), byte(v >> 8), byte(v)}

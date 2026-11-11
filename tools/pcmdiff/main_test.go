@@ -44,7 +44,7 @@ func TestCompareKnownError(t *testing.T) {
 	if math.Abs(s.peakOut[0]-0.201) > 1e-12 {
 		t.Fatalf("peakOut[0]=%g, want 0.201", s.peakOut[0])
 	}
-	// 第 1 声道完全相同;帧数与参考峰值按采样帧、按声道统计
+	// 第 1 声道完全相同。帧数与参考峰值按采样帧、按声道统计
 	if s.framesRef != 2 || s.framesOut != 2 || s.maxErr[1] != 0 {
 		t.Fatalf("frames ref=%d out=%d, maxErr[1]=%g, want 2, 2, 0", s.framesRef, s.framesOut, s.maxErr[1])
 	}
@@ -65,7 +65,7 @@ func TestViolationsPeakDB(t *testing.T) {
 		{"digital silence", make([]float64, 8), make([]float64, 8), 2, 1e-5, 1e-3, 0.1, 0, nil},
 		// 放宽 RMS 与最大误差门槛,只留峰值判定
 		{"peak 0.2 dB high", []float64{0.5, 0}, []float64{0.5 * math.Pow(10, 0.2/20), 0}, 1, 1, 1, 0.1, 1, []string{"peak"}},
-		// 参考峰值 -80 dBFS,低于 -60 dBFS:放宽 RMS 与 dB 门槛,1e-3 的绝对误差门槛须触发
+		// 参考峰值 -80 dBFS,低于 -60 dBFS。放宽 RMS 与 dB 门槛,1e-3 的绝对误差门槛须触发
 		{"quiet reference", []float64{1e-4, 0}, []float64{1e-4 + 2e-3, 0}, 1, 1, 1e-3, 100, 2, []string{"peak", "below -60 dBFS"}},
 	}
 	for _, tc := range cases {

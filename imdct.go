@@ -42,7 +42,7 @@ func init() {
 	for i := 0; i < 36; i++ {
 		mdctWindows[3][i] = mdctWindows[1][35-i]
 	}
-	// ci 取自 ISO 11172-3 Table B.9(负值);cs = 1/√(1+ci²),ca = ci·cs
+	// ci 取自 ISO 11172-3 Table B.9(负值)。cs = 1/√(1+ci²),ca = ci·cs
 	ci := [8]float64{-0.6, -0.535, -0.33, -0.185, -0.095, -0.041, -0.0142, -0.0037}
 	for i, c := range ci {
 		cs := 1 / math.Sqrt(1+c*c)
@@ -81,7 +81,7 @@ func imdct12(x *[6]float64, out *[12]float64) {
 	}
 }
 
-// antialias 对前 aaBands+1 个子带做蝶形抗混叠:相邻子带在当前子带上端 8 样本
+// antialias 对前 aaBands+1 个子带做蝶形抗混叠。相邻子带在当前子带上端 8 样本
 // 与下一子带下端 8 样本之间做蝶形(bu' = bu·cs − bd·ca,bd' = bd·cs + bu·ca)。
 // 含短块的 granule 只在长块子带部分进行(纯短块不做)。
 func antialias(spec *[576]float64, aaBands int) {
@@ -118,11 +118,12 @@ func reorderShortPart(dst, src *[576]float64, bm *bandMap) {
 }
 
 // imdctBlock 把一个声道的 576 条谱线变为 576 个子带时域采样,写入 out
-// (子带主序 [32][18]);spec 被就地抗混叠,调用后不再保留原值。blockType:
-// 0 长、1 起始、2 短、3 结束。nLongSubbands 是混合块(mixed_block_flag 置位)中用
-// 正常窗变换的最低子带数,恒为 2,0 表示不是混合块:短块时这些子带走长块路径,起始
-// 与结束块时只换成正常窗。blockType 为 2 时 bm 必须是短块或混合块的带图
-// (reorderShortPart 读 shortBands[0])。8 kHz 混合块的长块区有 72 条谱线,其中子带 2、3 的 36 条
+// (子带主序 [32][18])。blockType 不为 2 时 spec 被就地抗混叠,调用后不再保留
+// 原值。blockType:0 长、1 起始、2 短、3 结束。nLongSubbands 是混合块
+// (mixed_block_flag 置位)中用正常窗变换的最低子带数,恒为 2,0 表示不是混合块。
+// 短块时这 nLongSubbands 个子带走长块路径,起始与结束块时只换成正常窗。
+// blockType 为 2 时 bm 必须是短块或混合块的带图(reorderShortPart 读
+// shortBands[0])。8 kHz 混合块的长块区有 72 条谱线,其中子带 2、3 的 36 条
 // 不重排,直接由 12 点 IMDCT 读取,与 FFmpeg、mpg123 相同。
 func (st *channelState) imdctBlock(spec *[576]float64, blockType int, nLongSubbands int, bm *bandMap, out *[32][18]float64) {
 	work := spec
@@ -146,7 +147,7 @@ func (st *channelState) imdctBlock(spec *[576]float64, blockType int, nLongSubba
 		ov, o := &st.overlap[sb], &out[sb]
 		switch {
 		case *in == [18]float64{}:
-			// 零输入的 IMDCT 为零:本块输出即上一块的重叠部分
+			// 零输入的 IMDCT 为零,所以本块输出即上一块的重叠部分
 			*o = *ov
 			*ov = [18]float64{}
 		case blockType == 2 && sb >= nLongSubbands:

@@ -21,7 +21,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// NewDecoder 只读取确认首帧所需的数据:帧本身加下一帧的 4 字节帧头;范围外格式同样
+// NewDecoder 只读取确认首帧所需的数据:帧本身加下一帧的 4 字节帧头。范围外格式同样
 // 在帧长处确认,不等满 4 KiB 的窗口。逐字节的源上读出的字节数就是请求的字节数。
 func TestNewDecoderReadsOnlyWhatItNeeds(t *testing.T) {
 	for _, tc := range []struct {
@@ -47,7 +47,7 @@ func TestNewDecoderReadsOnlyWhatItNeeds(t *testing.T) {
 }
 
 // 只有一帧、其后是标签的流:两种模式都确认这一帧。单独的 ID3v1 只有 3 字节标识,
-// 要求标签之后即流结束;其余标签(含 TAG+)有长度字段或多字节标识,看到起点即可。
+// 要求标签之后即流结束。其余标签(含 TAG+)有长度字段或多字节标识,看到起点即可。
 func TestFirstFrameFollowedByTags(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -85,7 +85,7 @@ func TestFirstFrameFollowedByTags(t *testing.T) {
 }
 
 // 源在首帧完整到达之后、下一帧帧头之前出错:首帧按未确认接受,先解码交付,再报告
-// 源错误;未确认的首帧解码失败时(多半是伪同步)报告源错误,而不是格式错误;候选带
+// 源错误。未确认的首帧解码失败时(多半是伪同步)报告源错误,而不是格式错误。候选带
 // emphasis 时同样多半是伪同步,不交出它。
 func TestFirstFrameBeforeSourceError(t *testing.T) {
 	sourceErr := errors.New("source reset")
@@ -115,7 +115,7 @@ func TestFirstFrameBeforeSourceError(t *testing.T) {
 		})
 	}
 
-	// 宽松模式也不容错未确认的首帧:它多半是伪同步,丢弃它再报告成功会掩盖源错误
+	// 宽松模式也不容错未确认的首帧,因为它多半是伪同步,丢弃它再报告成功会掩盖源错误
 	for _, m := range bothModes {
 		t.Run("frame fails to decode/"+m.name, func(t *testing.T) {
 			frame := bytes.Clone(shine[:starts[1]])
@@ -135,7 +135,7 @@ func TestFirstFrameBeforeSourceError(t *testing.T) {
 	}
 }
 
-// 范围外格式的首帧在帧长处确认:流恰在帧后结束也算;帧不完整或多出数据则不算。
+// 范围外格式的首帧在帧长处确认。流恰在帧后结束也算,帧不完整或多出数据则不算。
 func TestOutOfRangeFirstFrameAtStreamEnd(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -166,7 +166,7 @@ func TestOutOfRangeFirstFrameAtStreamEnd(t *testing.T) {
 	}
 }
 
-// 只有完整到达的候选才在源出错时按未确认接受;取消不是源错误,原样返回。
+// 只有完整到达的候选才在源出错时按未确认接受。取消不是源错误,原样返回。
 func TestFirstFrameAcceptedUnconfirmedOnlyWhenComplete(t *testing.T) {
 	data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 3)
 
@@ -196,7 +196,7 @@ var bothModes = []struct {
 	opts []Option
 }{{"strict", []Option{Strict()}}, {"lenient", []Option{lenient()}}}
 
-// sliceErr 的动态类型不可比较:对两个这样的错误做 == 比较会 panic。
+// sliceErr 的动态类型不可比较,所以对两个这样的错误做 == 比较会 panic。
 type sliceErr []string
 
 func (sliceErr) Error() string { return "source reset" }
@@ -231,7 +231,7 @@ func TestUncomparableSourceError(t *testing.T) {
 	})
 }
 
-// 帧后的 4 字节已经不是帧头时,候选不再按未确认接受:标签探测途中源出错,与流结束一样
+// 帧后的 4 字节已经不是帧头时,候选不再按未确认接受。标签探测途中源出错,与流结束一样
 // 候选不成立,报告源错误。
 func TestFirstFrameSourceErrorAfterNonHeader(t *testing.T) {
 	data := cat(repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 1), make([]byte, 8))

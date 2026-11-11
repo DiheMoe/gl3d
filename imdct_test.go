@@ -105,7 +105,7 @@ func TestShortBlockLayout(t *testing.T) {
 	// 短块:窗口 0 的冲激应在 6..17 出现正弦形输出,0..5 与 30..35 为 0
 	var st channelState
 	var spec [576]float64
-	// MPEG-1 44100 短块 sfb 带 0 宽度 4/窗:子带 0 覆盖窗口频率 0..5
+	// MPEG-1 44100 短块 sfb 带 0 宽度 4/窗,子带 0 覆盖窗口频率 0..5
 	// 在带交错布局中,带 0 窗口 0 的 4 个值位于 spec[0..3]
 	spec[0] = 1
 	spec[1] = 0
@@ -129,14 +129,13 @@ func TestShortBlockLayout(t *testing.T) {
 }
 
 func TestAntialiasButterfly(t *testing.T) {
-	// 构造两子带边界值,验证蝶形公式 u·cs − d·ca / u·ca + d·cs
 	var spec [576]float64
 	spec[17] = 0.5  // 子带 0 顶部
 	spec[18] = -0.3 // 子带 1 底部
 	antialias(&spec, 1)
 	c, s := aliasCA[0], aliasCS[0]
 	u, d := -0.3, 0.5
-	// 下端(lower)= u·cs + d·ca;上端(upper)= d·cs − u·ca(dist10 III_antialias)
+	// 下端(lower)= u·cs + d·ca,上端(upper)= d·cs − u·ca(dist10 III_antialias)
 	if math.Abs(spec[18]-(u*s+d*c)) > 1e-12 {
 		t.Fatalf("spec[18]=%g, want %g", spec[18], u*s+d*c)
 	}
@@ -145,7 +144,8 @@ func TestAntialiasButterfly(t *testing.T) {
 	}
 }
 
-// 8 kHz 混合块的短块区从第 72 条谱线开始:其下原样复制,其上按带重排为频主序三元组。
+// 8 kHz 混合块的短块区从第 72 条谱线开始。
+// 短块区之下原样复制,短块区按带重排为频主序三元组。
 func TestReorderShortPartMixed8k(t *testing.T) {
 	bm := bandMapFor(mpeg25, 2, shapeMixed)
 	var src, dst [576]float64

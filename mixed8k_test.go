@@ -28,7 +28,7 @@ type g8 struct {
 	ts1, split int
 
 	// scalefactor:sfc 为 LSF scalefac_compress(须 < 400,无 intensity),
-	// scf 为按传输顺序的值,个数为该块形 nr_of_sfb 之和;sbg 为 subblock_gain。
+	// scf 为按传输顺序的值,个数为该块形 nr_of_sfb 之和,sbg 为 subblock_gain。
 	sfc int
 	scf []int
 	sbg [3]int
@@ -87,7 +87,7 @@ type lsfFormat struct {
 var fmt8000 = lsfFormat{0, 2, 576}
 
 // buildLSFStream 按 f 的帧头构造 LSF Layer III 帧序列,帧尾补零。g.sfc 为 0 时
-// scalefac_compress 为 0(四段 slen 全为 0,不传 scalefactor,preflag 为 0);
+// scalefac_compress 为 0(四段 slen 全为 0,不传 scalefactor,preflag 为 0)。
 // 无 region 探针时谱值全部用 Huffman 表 1 编码,part2_3_length 恰为 scalefactor 与
 // big_values 区位数之和,count1 区为空,region 边界因此不影响解码结果。
 func buildLSFStream(t *testing.T, f lsfFormat, frames []g8) []byte {
@@ -187,8 +187,8 @@ func pattern8k(frame, lo, hi int) []int {
 	return v
 }
 
-// family8k 描述一条构造码流:cycle 是 10 帧一循环的块代码("0" 长块,"2m" 为块类型 2
-// 且 mixed_block_flag 置位,"2" 无该标志),重复 4 次共 40 帧;非零谱线限于 [lo, hi);
+// family8k 描述一条构造码流。cycle 是 10 帧一循环的块代码("0" 长块,"2m" 为块类型 2
+// 且 mixed_block_flag 置位,"2" 无该标志),重复 4 次共 40 帧。非零谱线限于 [lo, hi)。
 // scfIn 中的块代码带非零 scalefactor 与 subblock_gain。
 type family8k struct {
 	name   string
@@ -197,7 +197,7 @@ type family8k struct {
 	scfIn  []string
 }
 
-// scalefac_compress 202 对应 slen (2,2,2,2);scalefactor 取值为伪随机的 0..3。
+// scalefac_compress 202 对应 slen (2,2,2,2),scalefactor 取值为伪随机的 0..3。
 const scfCompress8k = 202
 
 // sbg8k 是带 scalefactor 的块使用的 subblock_gain。
@@ -254,7 +254,8 @@ func (f family8k) frames() []g8 {
 	return out
 }
 
-// 入库的 8 kHz 混合块码流由本文件的构造器生成;构造器与文件必须一致,参考 PCM 才有出处。
+// 入库的 8 kHz 混合块码流由本文件的构造器生成。
+// 构造器与文件必须一致,参考 PCM 才有出处。
 func TestMixed8kCorpusMatchesBuilder(t *testing.T) {
 	for _, f := range mixed8kFamilies {
 		t.Run(f.name, func(t *testing.T) {
@@ -284,9 +285,9 @@ type probeClass struct {
 	target []string
 }
 
-// probeFrames 返回探针码流的帧;split < 0 为基准(全用表 1)。探针与基准谱值相同,
-// 只在 target 块中令 table_select[0]=1、table_select[1]=3,编码端在第 split 条谱线
-// 换表;解码器的 region0 边界恰为 split 时,探针与基准的输出逐字节相同。
+// probeFrames 返回探针码流的帧,split < 0 时返回基准(全用表 1)。探针与基准谱值
+// 相同,只在 target 块中令 table_select[0]=1、table_select[1]=3,编码端在第 split
+// 条谱线换表。解码器的 region0 边界恰为 split 时,探针与基准的输出逐字节相同。
 func probeFrames(pc probeClass, split int) []g8 {
 	var out []g8
 	for r := 0; r < 4; r++ {
@@ -307,7 +308,7 @@ func probeFrames(pc probeClass, split int) []g8 {
 	return out
 }
 
-// 8 kHz 混合块的 region0 止于长块区上端(72),与 FFmpeg 相同;纯短块与起始/结束块
+// 8 kHz 混合块的 region0 止于长块区上端(72),与 FFmpeg 相同。纯短块与起始/结束块
 // 由解析隐含的 region0_count 决定。其余采样率的 36 见 TestRegionBoundsSwitched。
 func TestRegion0Boundary(t *testing.T) {
 	for _, tc := range []struct {

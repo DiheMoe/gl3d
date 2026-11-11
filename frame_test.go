@@ -16,7 +16,7 @@ func id3v1Tag() []byte {
 }
 
 // 表 0 及缺失 reservoir 的静音路径可以不读位,仍须拒绝超过窗口的总预算。宽松模式与
-// side info 非法同样处理:丢弃这一帧,后面的帧照常解码。
+// side info 非法同样处理,也就是丢弃这一帧,后面的帧照常解码。
 func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
 	for _, missing := range []int{0, 511} {
 		data := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 2)
@@ -45,7 +45,7 @@ func TestFrameRejectsImpossibleMainDataBudget(t *testing.T) {
 	}
 }
 
-// drain 以严格模式解码到流结束并返回解码器;io.EOF 视为正常结束,其他错误原样返回。
+// drain 以严格模式解码到流结束并返回解码器。io.EOF 视为正常结束,其他错误原样返回。
 func drain(t *testing.T, r io.Reader) (*Decoder, error) {
 	t.Helper()
 	d, err := NewDecoder(context.Background(), r, Strict())
@@ -67,7 +67,7 @@ func drain(t *testing.T, r io.Reader) (*Decoder, error) {
 	}
 }
 
-// 文件中途改变 MPEG 版本、采样率或声道数属不支持的特性;切换前的完整帧照常交付。
+// 文件中途改变 MPEG 版本、采样率或声道数属不支持的特性。切换前的完整帧照常交付。
 // MPEG-1 与 MPEG-2 的采样率集合不相交,版本改变必然伴随采样率改变,故无仅改版本的用例。
 func TestMidStreamFormatChangeUnsupported(t *testing.T) {
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestCorruptErrorReportsFrameIndex(t *testing.T) {
 		if gi := si.gr[0][0]; idx >= 10 && !gi.windowSwitching && gi.bigValues > 0 {
 			// gr0/ch0 的 table_select[0] 位于 side info 第 54 位:main_data_begin 9 +
 			// private 3 + scfsi 8 + part2_3_length 12 + big_values 9 + global_gain 8 +
-			// scalefac_compress 4 + window_switching 1;改为未定义的表 4
+			// scalefac_compress 4 + window_switching 1。改为未定义的表 4
 			setBits(data[p+4:], 54, 5, 4)
 			target = idx
 			break

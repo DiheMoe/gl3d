@@ -14,7 +14,7 @@ import (
 
 func cat(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
 
-// apeTag 返回 APEv2 标签,条目为 {键, 文本值};header 为真时带头部。
+// apeTag 返回 APEv2 标签,条目为 {键, 文本值}。header 为真时带头部。
 func apeTag(header bool, items ...[2]string) []byte {
 	var body []byte
 	for _, it := range items {
@@ -85,7 +85,7 @@ func TestTrailingTagChains(t *testing.T) {
 		{"ID3v2 without footer", rawID3v2(3, 0, make([]byte, 40), false), TagID3v2},
 		{"every kind", cat(apeTag(false, [2]string{"Title", "gl3d"}), lyrics3v2("la"), rawID3v2(4, 0x10, nil, true), tagPlus(), id3v1Tag()),
 			TagAPEv2 | TagLyrics3 | TagID3v2 | TagID3v1Ext | TagID3v1},
-		// 值长度 0xE0FF 的小端字节以 FF E0 开头,像帧同步;帧后与下一次调用必须对同一段字节作同样的判断
+		// 值长度 0xE0FF 的小端字节以 FF E0 开头,像帧同步。帧后与下一次调用必须对同一段字节作同样的判断
 		{"APEv2 item length reads as a frame sync", apeTag(false, [2]string{"Cover", string(make([]byte, 0xE0FF))}), TagAPEv2},
 		{"APEv2 item length reads as a frame sync, after ID3v1", cat(id3v1Tag(), apeTag(false, [2]string{"Cover", string(make([]byte, 0xE8FF))})), TagID3v1 | TagAPEv2},
 		{"Lyrics3 v1 of 5100 bytes", cat(lyrics3v1(strings.Repeat("a", lyrics3v1Max)), id3v1Tag()), TagLyrics3 | TagID3v1},
@@ -120,8 +120,8 @@ func TestTrailingTagChains(t *testing.T) {
 	}
 }
 
-// 严格模式下尾部标签与其长度字段或结束标记不符:已知范围的标签被流结束截断为
-// 截断,其余为格式错误;报告记下无法确认的那个标签的起点。
+// 严格模式下尾部标签与其长度字段或结束标记不符:已知范围的标签被流结束截断时报
+// 截断,其余报格式错误。报告记下无法确认的那个标签的起点。
 func TestTrailingTagsMalformedStrict(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -168,7 +168,7 @@ func TestTrailingTagsMalformedStrict(t *testing.T) {
 	}
 }
 
-// 严格模式下标签之后又出现音频帧:这些标签在流中间,报格式错误并指向第一个标签;
+// 严格模式下标签之后又出现音频帧:这些标签在流中间,报格式错误并指向第一个标签。
 // 标签之前的帧照常交出。
 func TestMidstreamTagsStrict(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -202,7 +202,7 @@ func TestMidstreamTagsStrict(t *testing.T) {
 	}
 }
 
-// 尾部标签与开头的标签共用 16 MiB 的跳过预算;超出发生在交出音频之后,
+// 尾部标签与开头的标签共用 16 MiB 的跳过预算。超出发生在交出音频之后,
 // 同样记入报告。
 func TestTrailingTagsShareBudget(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -219,7 +219,7 @@ func TestTrailingTagsShareBudget(t *testing.T) {
 	}
 }
 
-// 宽松模式不设累计的标签预算:超过 16 MiB 的标签照常跳过,只记一次资源限制。
+// 宽松模式不设累计的标签预算,所以超过 16 MiB 的标签照常跳过,只记一次资源限制。
 func TestTagBudgetLenient(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -249,7 +249,7 @@ func TestTagBudgetLenient(t *testing.T) {
 	}
 }
 
-// 帧后的数据只在恰好是标签起点时才确认帧边界:常见的填充与垃圾不会被认作标签。
+// 帧后的数据只在恰好是标签起点时才确认帧边界。常见的填充与垃圾不会被认作标签。
 func TestTagAtRejectsPaddingAndJunk(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -270,13 +270,13 @@ func TestTagAtRejectsPaddingAndJunk(t *testing.T) {
 	}
 }
 
-// 源读取错误与取消不是流的结构:尾部标签链在任意一个字节处被中断时,已完整到达的
+// 源读取错误与取消不是流的结构。尾部标签链在任意一个字节处被中断时,已完整到达的
 // 音频帧照常交付,终止错误是中断本身,报告什么也不记。
 func TestInterruptedTrailingTagsDeliverFramesAndRecordNothing(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
-	// NewDecoder 读到首帧和下一帧的帧头才返回,取消落在其前它自己就失败了;音频至少两帧,
-	// 中断才会落在尾部标签上
+	// NewDecoder 读到首帧和下一帧的帧头才返回,取消落在这之前时 NewDecoder 自己就失败了。
+	// 音频至少两帧,中断才会落在尾部标签上
 	audio := shine[:starts[2]]
 	tail := cat(apeTag(false, [2]string{"Title", "gl3d"}), lyrics3v2("la"), rawID3v2(4, 0x10, nil, true), tagPlus(), id3v1Tag())
 	full := cat(audio, tail)
@@ -293,7 +293,7 @@ func TestInterruptedTrailingTagsDeliverFramesAndRecordNothing(t *testing.T) {
 				t.Fatalf("%s, source error after %d tail bytes: err=%v, %d samples (want %d)", m.name, cut, err, len(got), len(want))
 			}
 
-			// 取消发生在读到第 len(audio)+cut 字节时;decodeMode 用不会取消的 context,这里自己循环
+			// 取消发生在读到第 len(audio)+cut 字节时。decodeMode 用不会取消的 context,所以这里自己循环
 			ctx, cancel := context.WithCancel(context.Background())
 			r := &cancelAfterReader{r: &oneByteReader{r: bytes.NewReader(full)}, limit: len(audio) + cut, cancel: cancel}
 			d, err = NewDecoder(ctx, r, m.opts...)

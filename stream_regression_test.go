@@ -30,7 +30,7 @@ func (r *finalErrorReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// 完整短流,包括只有一帧的输入,遇到非 EOF 源错误仍须交付全部完整帧;
+// 完整短流,包括只有一帧的输入,遇到非 EOF 源错误仍须交付全部完整帧。
 // 不完整的下一帧头不得被吞掉或将源错误改成 EOF/格式错误。
 func TestShortStreamSourceErrorPreservesFrames(t *testing.T) {
 	h := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0)
@@ -61,8 +61,8 @@ func TestShortStreamSourceErrorPreservesFrames(t *testing.T) {
 	}
 }
 
-// 流中间的标签之后遇到源错误,缓冲中已经完整的帧照常交出,与没有标签时相同;源错误在
-// 它们之后报告。
+// 流中间的标签之后遇到源错误,缓冲中已经完整的帧照常交出,与没有标签时相同。源错误在
+// 这些帧之后报告。
 func TestSourceErrorAfterTagRunPreservesFrames(t *testing.T) {
 	h := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0)
 	srcErr := errors.New("source reset")
@@ -81,8 +81,8 @@ func TestSourceErrorAfterTagRunPreservesFrames(t *testing.T) {
 }
 
 // 单帧后接 ID3v1 的各种结尾。只有一帧时,首帧要么由帧头到齐前的流结束确认,要么由
-// 恰好以流结束收尾的完整 ID3v1 确认:3 字节标识不足以排除伪同步,残缺标签或标签后另有
-// 数据时两种模式都找不到音频。帧尾之后是无法识别的数据时,严格模式不交付这一帧,
+// 恰好以流结束收尾的完整 ID3v1 确认,因为 3 字节标识不足以排除伪同步。残缺标签或标签后
+// 另有数据时两种模式都找不到音频。帧尾之后是无法识别的数据时,严格模式不交付这一帧,
 // 宽松模式交付并记入报告。
 func TestSingleFrameID3v1Boundary(t *testing.T) {
 	frame := repeatFrames(mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0), 417, 1)
@@ -164,7 +164,7 @@ func TestLAMEEncoderField(t *testing.T) {
 	})
 }
 
-// 无 LAME 扩展的 Xing 帧仍有可信帧数;全零的帧尾填充不应被当成一个
+// 无 LAME 扩展的 Xing 帧仍有可信帧数。全零的帧尾填充不应被当成一个
 // CRC 错误的 LAME 扩展,使帧数声明一起消失。
 func TestXingWithoutLAMEPreservesFrameCount(t *testing.T) {
 	for _, declared := range []int{3, 100} {

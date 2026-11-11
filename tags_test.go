@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// id3v2HeaderAt 是 parseID3v2Header 的不分配内存的预检:size 的每个字节取遍 0–255,两者
+// id3v2HeaderAt 是 parseID3v2Header 的不分配内存的预检。size 的每个字节取遍 0–255,两者
 // 接受的范围一致。
 func TestID3v2HeaderAtAgreesWithParse(t *testing.T) {
 	for pos := 6; pos < 10; pos++ {

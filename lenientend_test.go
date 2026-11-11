@@ -9,7 +9,7 @@ import (
 
 const toneDelivered = 220500 // sine440-stereo-44k1-cbr192.mp3 完好解码交付的采样帧数
 
-// 帧数多于声明:尾裁区间在声明位置,流中间多出的采样帧丢弃,其后的帧照常交付;
+// 帧数多于声明:尾裁区间在声明位置,流中间多出的采样帧丢弃,其后的帧照常交付。
 // 严格模式交付同样的样本后报帧数不符,宽松模式记入报告。
 func TestTrimAtDeclaredPositionWithExtraFrames(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")

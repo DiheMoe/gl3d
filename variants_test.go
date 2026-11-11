@@ -15,21 +15,21 @@ import (
 
 var writeVariants = flag.String("write-variants", "", "write the variants of corpus/variants.json (except in-test-only ones) to this directory")
 
-// variant 是冻结语料的一个变体:base 文件经 ops 改写。期望与两个参考的输出长度
+// variant 是冻结语料的一个变体,也就是经 ops 改写的 base 文件。期望与两个参考的输出长度
 // 在编写清单时用冻结版本的 FFmpeg、mpg123 按默认的 gapless 处理测得(命令见清单的 lengthCommands)。
 type variant struct {
 	Name       string        `json:"name"`
 	Base       string        `json:"base"`
-	Class      int           `json:"class"` // 1:音频完好、外围结构异常;2:音频损坏或拼接
+	Class      int           `json:"class"` // 1 为音频完好、外围结构异常,2 为音频损坏或拼接
 	InTestOnly bool          `json:"inTestOnly,omitempty"`
 	Ops        []variantOp   `json:"ops"`
-	SHA256     string        `json:"sha256"` // variantBytes 的十六进制 SHA-256:参考长度针对这些字节测得,字节变了就要重测
+	SHA256     string        `json:"sha256"` // variantBytes 的十六进制 SHA-256。参考长度针对这些字节测得,字节变了就要重测
 	Expect     variantExpect `json:"expect"`
 	Note       string        `json:"note,omitempty"` // 两个参考不一致或期望不显然时的裁决理由
 }
 
-// variantOp 是一个改写操作。Frame 是 base 的音频帧序号(不含标签帧,从 0 起;
-// 等于帧数时指最后一帧之后),Off 是帧内字节偏移。
+// variantOp 是一个改写操作。Frame 是 base 的音频帧序号(不含标签帧,从 0 起),
+// 等于帧数时指最后一帧之后。Off 是帧内字节偏移。
 type variantOp struct {
 	Op    string `json:"op"`
 	Frame int    `json:"frame,omitempty"`
@@ -40,19 +40,19 @@ type variantOp struct {
 }
 
 type variantExpect struct {
-	FFmpeg int64  `json:"ffmpeg"`           // FFmpeg 输出的采样帧数;超大标签变体为 -1(不测)
-	MPG123 int64  `json:"mpg123"`           // mpg123 输出的采样帧数;同上
+	FFmpeg int64  `json:"ffmpeg"`           // FFmpeg 输出的采样帧数,超大标签变体为 -1(不测)
+	MPG123 int64  `json:"mpg123"`           // mpg123 输出的采样帧数,超大标签变体同样为 -1(不测)
 	Strict string `json:"strict"`           // 严格模式的结果类别,取 errClass 的值:ok、corrupt、truncated、unsupported、limit
 	Frames int64  `json:"frames,omitempty"` // 第一类:宽松模式交付的采样帧数
 	// 第一类:交付的 PCM 与完好 base 的输出(下称 intact)的关系。
 	// intact:逐样本相同。
 	// prefix:在较短者的长度内与 intact 逐样本相同(尾部被截去)。
 	// extra:ops 是单个 copy-frames。前 len(intact) 个样本与 intact 相同(尾部填充在声明位置丢弃),
-	// 其后恰是复制进来的各帧,与 base 中原帧的解码逐样本相同(前几帧除外:它们的 main data 回指流的最后一帧)。
+	// 其后恰是复制进来的各帧,与 base 中原帧的解码逐样本相同(前几帧除外,因为它们的 main data 回指流的最后一帧)。
 	// offset:ops 是单个从第 0 帧起的 drop-frames。交付的第 j 个采样帧等于 intact 的第 j+N·spf 个,
-	// 重叠范围内逐样本相同(第一帧除外:它回指的 main data 随被丢弃的帧一起没了)。
+	// 重叠范围内逐样本相同(第一帧除外,因为它回指的 main data 随被丢弃的帧一起没了)。
 	PCM string `json:"pcm,omitempty"`
-	// 第二类:第一处损坏所在的音频帧;尾部从 TailBase(默认 base)的第 TailFrom 帧起与之一致,
+	// 第二类:第一处损坏所在的音频帧。尾部从 TailBase(默认 base)的第 TailFrom 帧起与之一致,
 	// TailFrom 为 nil 表示损坏之后没有可比较的尾部
 	FirstDamage int    `json:"firstDamage,omitempty"`
 	TailBase    string `json:"tailBase,omitempty"`
@@ -110,9 +110,9 @@ func randomBytes(n int, seed uint64) []byte {
 	return b
 }
 
-// isAppendOp 报告操作是否只在当前结尾追加。第一个操作之后只允许追加:其余操作
-// (定位操作、pad-after-id3v2、huge-id3v2、emphasis-all)的位置取自 base 的帧表,
-// 前面有改动就不再对得上。
+// isAppendOp 报告操作是否只在当前结尾追加。一个变体是 base 加至多一处改动,再加若干追加,
+// 所以第一个操作之后只允许追加。定位操作与 emphasis-all 的位置取自 base 的帧表,前面有
+// 改动就不再对得上。
 func isAppendOp(op string) bool { return strings.HasPrefix(op, "append-") }
 
 // positionalOps 是按 base 帧表定位的操作。
@@ -145,14 +145,15 @@ func id3v2Len(t *testing.T, data []byte) int {
 	return size
 }
 
-// usesN 是读取 N 的操作;N 为 0 时它们什么也不做。
+// usesN 是读取 N 的操作。N 为 0 时,insert-id3v2 与 huge-id3v2 仍插入一个 10 字节的
+// 空 ID3v2 头,drop-frames 与 copy-frames 报错,其余什么也不做。
 var usesN = map[string]bool{
 	"append-zeros": true, "append-random": true, "insert-id3v2": true, "insert-random": true,
 	"pad-after-id3v2": true, "huge-id3v2": true, "delete": true, "overwrite-random": true,
 	"drop-frames": true, "copy-frames": true,
 }
 
-// inFrameOps 是作用在某个音频帧内部的操作:Frame 必须是真实的帧(不能是"最后一帧之后"),
+// inFrameOps 是作用在某个音频帧内部的操作。Frame 必须是真实的帧(不能是"最后一帧之后"),
 // 帧内偏移与改动的字节不能越出这一帧,否则改动落进相邻的帧,变体就不是清单描述的样子。
 var inFrameOps = map[string]bool{
 	"break-sync": true, "flip-protection": true, "crc-field": true, "big-values": true,
@@ -273,7 +274,7 @@ func variantBytes(t *testing.T, v variant) []byte {
 				t.Fatal(err)
 			}
 			mono := h.channels() == 1
-			// gr0/ch0 的 big_values 紧跟在 part2_3_length 之后;side info 在帧头与可选 CRC 之后
+			// gr0/ch0 的 big_values 紧跟在 part2_3_length 之后。side info 在帧头与可选 CRC 之后
 			var bit int
 			if h.version == mpeg1 {
 				private, scfsi := 3, 8
@@ -315,12 +316,17 @@ func variantBytes(t *testing.T, v variant) []byte {
 	return out
 }
 
-// 清单自洽:名字唯一;base、File、tailBase 存在;第一个操作之后只有追加操作;读取 N 的操作
-// N > 0,作用在帧内的操作不越出所在的帧;append-tagplus 紧跟 append-id3v1;第一类有
-// frames 与 pcm 而没有第二类的字段,两个参考长度一致时 frames 等于它们,不一致时有 note 且
-// frames 至少等于其中之一;第二类有 firstDamage 而没有 frames、pcm,firstDamage、tailFrom
-// 落在对应文件的帧数范围内,尾部来源与 base 的帧长、声道数相同;严格模式结果类别合法;
-// 每个变体都能生成,字节与清单记录的 SHA-256 相同。
+// 清单自洽:
+//   - 名字唯一,base、File、tailBase 存在。
+//   - 第一个操作之后只有追加操作。
+//   - 读取 N 的操作 N > 0,作用在帧内的操作不越出所在的帧。
+//   - append-tagplus 紧跟 append-id3v1。
+//   - 第一类有 frames 与 pcm 而没有第二类的字段。两个参考长度一致时 frames 等于它们,
+//     不一致时有 note 且 frames 至少等于其中之一。
+//   - 第二类有 firstDamage 而没有 frames、pcm。firstDamage、tailFrom 落在对应文件的
+//     帧数范围内,尾部来源与 base 的帧长、声道数相同。
+//   - 严格模式结果类别合法。
+//   - 每个变体都能生成,字节与清单记录的 SHA-256 相同。
 func TestVariantsManifest(t *testing.T) {
 	vs := loadVariants(t)
 	if len(vs) == 0 {
@@ -366,7 +372,7 @@ func TestVariantsManifest(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					// 改写与删除触及 N 个字节;其余操作在 Off 处生效,Off 至少落在帧内
+					// 改写与删除触及 N 个字节。其余操作在 Off 处生效,Off 至少落在帧内
 					touched := 1
 					if op.Op == "delete" || op.Op == "overwrite-random" {
 						touched = op.N
@@ -441,7 +447,7 @@ func TestVariantsManifest(t *testing.T) {
 					if *tf < 0 || *tf >= tailFrames {
 						t.Errorf("tailFrom %d, want 0..%d (the tail base's audio frames)", *tf, tailFrames-1)
 					}
-					// 省略 tailBase 表示就地损坏:尾部在损坏所在的帧之后
+					// 省略 tailBase 表示就地损坏,所以尾部在损坏所在的帧之后
 					if e.TailBase == "" && *tf <= e.FirstDamage {
 						t.Errorf("tailFrom %d not after firstDamage %d", *tf, e.FirstDamage)
 					}
@@ -462,7 +468,7 @@ func TestVariantsManifest(t *testing.T) {
 	}
 }
 
-// 写出全部变体(超大标签的除外)供 refgen 生成参考。包路径要写在 -args 之前:
+// 写出全部变体(超大标签的除外)供 refgen 生成参考。包路径要写在 -args 之前,因为
 // go test 把不认识的标志连同其后的参数都交给测试程序,包路径放在后面会被当成它的参数。
 //
 //	go test -count=1 -run '^TestWriteVariants$' . -args -write-variants DIR

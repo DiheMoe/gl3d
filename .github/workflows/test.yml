@@ -67,7 +67,7 @@ jobs:
 
       - name: Compare every corpus entry with its reference
         run: |
-          # 默认 shell 是 bash -e,没有 pipefail;缺了它,go test 的失败会被 tee 的退出码掩盖
+          # 默认 shell 是 bash -e,没有 pipefail。缺了 pipefail,go test 的失败会被 tee 的退出码掩盖
           set -o pipefail
           go test -count=1 -run '^TestEndToEndLavcCorpus$' -v . | tee e2e.log
           want=$(jq '.entries | length' corpus/manifest.json)

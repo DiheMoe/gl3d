@@ -26,7 +26,7 @@ func (b *bitReader) read(n int) (int, error) {
 	return v, nil
 }
 
-// peek32 返回从当前位置起的 32 位(MSB 对齐),越过数据末尾的位补 0;不移动位置。
+// peek32 返回从当前位置起的 32 位(MSB 对齐),越过数据末尾的位补 0,不移动位置。
 func (b *bitReader) peek32() uint32 {
 	i := b.pos >> 3
 	var w uint64

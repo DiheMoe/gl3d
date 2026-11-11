@@ -18,8 +18,8 @@ func decodeVariant(t *testing.T, data []byte, opts ...Option) (*Decoder, []float
 	return decodeMode(t, bytes.NewReader(data), opts...)
 }
 
-// decodeUntrimmed 以宽松模式解码 data,不做 gapless 裁剪:第二类变体的尾部按解码流的
-// 结尾对齐比较,裁剪区间的位置取决于声明帧数与实际帧数,不能参与对齐。
+// decodeUntrimmed 以宽松模式解码 data,不做 gapless 裁剪,因为第二类变体的尾部按解码流的
+// 结尾对齐比较,而裁剪区间的位置取决于声明帧数与实际帧数,不能参与对齐。
 func decodeUntrimmed(t *testing.T, data []byte) []float64 {
 	t.Helper()
 	d, err := NewDecoder(context.Background(), bytes.NewReader(data), lenient())
@@ -44,7 +44,7 @@ func decodeUntrimmed(t *testing.T, data []byte) []float64 {
 	}
 }
 
-// requireSamplesEqual 要求两段交错 PCM 逐样本完全相同;不同时报出第一处差异的位置与差异个数。
+// requireSamplesEqual 要求两段交错 PCM 逐样本完全相同。不同时报出第一处差异的位置与差异个数。
 func requireSamplesEqual(t *testing.T, what string, got, want []float64, ch int) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -66,7 +66,7 @@ func requireSamplesEqual(t *testing.T, what string, got, want []float64, ch int)
 }
 
 // 第一类变体(音频完好、外围结构异常):宽松模式成功,输出全部有限,交付清单给出的采样
-// 帧数;pcm 的种类(intact、prefix、extra、offset)见 variantExpect.PCM。
+// 帧数。pcm 的种类(intact、prefix、extra、offset)见 variantExpect.PCM。
 func TestVariantsClass1(t *testing.T) {
 	for _, v := range loadVariants(t) {
 		if v.Class != 1 {
@@ -132,8 +132,8 @@ func TestVariantsClass1(t *testing.T) {
 				requireSamplesEqual(t, "copied frames",
 					pcm[(n+skip*spf)*ch:(n+op.N*spf)*ch], u[(op.Frame+skip)*spf*ch:(op.Frame+op.N)*spf*ch], ch)
 			case "offset":
-				// 从头丢掉 N 帧:第一帧的 main data 随被丢弃的帧一起没了,从第二帧起交付的第 j 个
-				// 采样帧就是完好输出的第 j+N·spf 个;完好输出多出的尾部填充被裁掉,比较到重叠处为止
+				// 从头丢掉 N 帧,所以第一帧的 main data 随被丢弃的帧一起没了,从第二帧起交付的第 j 个
+				// 采样帧就是完好输出的第 j+N·spf 个。完好输出多出的尾部填充被裁掉,比较到重叠处为止
 				op := v.Ops[0]
 				shift := op.N * spf
 				lo, hi := spf, min(len(pcm)/ch, len(intact)/ch-shift)
@@ -179,8 +179,8 @@ func channelErrors(got, want []float64, ch int) (rms, maxAbs []float64) {
 	return rms, maxAbs
 }
 
-// 第二类变体(音频损坏与拼接):宽松模式不失败,输出全部有限;交付长度与 FFmpeg 相差不超过
-// 2 帧;第一处损坏之前的输出与完好文件逐字节相同;最后一处损坏之后第 3 帧起,按解码流
+// 第二类变体(音频损坏与拼接):宽松模式不失败,输出全部有限,交付长度与 FFmpeg 相差不超过
+// 2 帧。第一处损坏之前的输出与完好文件逐字节相同。最后一处损坏之后第 3 帧起,按解码流
 // (尾裁之前)的结尾对齐,与尾部来源文件的解码在门槛内一致。
 func TestVariantsClass2(t *testing.T) {
 	const rmsLimit, maxLimit = 1e-5, 1e-3

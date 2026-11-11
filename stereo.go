@@ -20,15 +20,15 @@ func msStereo(l, r []float64) {
 }
 
 // processStereo 处理一个 granule 的双声道谱线(反量化之后、IMDCT 之前)。
-// intensity stereo 时右声道的 scalefactor 携带位置:MPEG-1 为 0..6(7 起为
-// 该带不做 intensity 的哨兵);LSF 为幂次表,scalefacCompress&1 选表,-1 为
+// intensity stereo 时右声道的 scalefactor 携带位置。MPEG-1 为 0..6(7 起为
+// 该带不做 intensity 的哨兵)。LSF 为幂次表,scalefacCompress&1 选表,-1 为
 // 不做哨兵(LSF 终止值语义取自参考实现观察,各实现不一致,未经标准文本核实)。
-// 最高带不传 scf,沿用下面一带(短块为同一窗口)的位置;下面一带不在
+// 最高带不传 scf,沿用下面一带(短块为同一窗口)的位置。下面一带不在
 // intensity 区时各参考实现行为分歧,本实现仍取其 scalefactor。MS 只作用于
-// intensity 界限以下的带与非法位置带;intensity 带不做 MS,也就不乘 MS 的
-// 1/√2——本实现的 1/√2 只在 msStereo 中施加,不做 MS 的带无需补偿。
-// transmitted 为 0 说明右声道的 scalefactor 出错被置零,没有 intensity 位置可用:
-// 各带都按界限以下处理。
+// intensity 界限以下的带与非法位置带。intensity 带不做 MS,也就不乘 MS 的
+// 1/√2。本实现的 1/√2 只在 msStereo 中施加,不做 MS 的带无需补偿。
+// transmitted 为 0 说明右声道的 scalefactor 出错被置零,没有 intensity 位置可用,
+// 所以各带都按界限以下处理。
 func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int, transmitted int, l, r *[576]float64) {
 	if h.channelMode != modeJointStereo {
 		return
@@ -41,7 +41,7 @@ func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int
 		return
 	}
 
-	// intensity 界限:右声道最后一个非零带。短块带逐窗口确定;长块带(含混合块
+	// intensity 界限:右声道最后一个非零带。短块带逐窗口确定。长块带(含混合块
 	// 的长部)只在三个窗口的短块带全为零时才可能进入 intensity 区。
 	maxShort := [3]int{-1, -1, -1}
 	maxLong := -1
@@ -91,7 +91,7 @@ func processStereo(h *frameHeader, giR *granuleInfo, bm *bandMap, scfRight []int
 		}
 		ipos := scfRight[src]
 		if ipos < 0 || ipos >= maxPos {
-			// 非法位置(LSF 为全 1 哨兵 -1):该带不做 intensity
+			// 位置非法(LSF 为全 1 哨兵 -1)时该带不做 intensity
 			if ms {
 				msStereo(l[lo:hi], r[lo:hi])
 			}

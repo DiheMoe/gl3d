@@ -18,7 +18,7 @@ func TestRunWritesF64LE(t *testing.T) {
 		wantClean bool
 	}{
 		{"clean", 0, true},
-		// 默认模式是宽松的:音频之后的垃圾不使解码失败,只让 clean 为假
+		// 默认模式是宽松的,所以音频之后的垃圾不使解码失败,只让 clean 为假
 		{"garbage tail", 300, false},
 	}
 	for _, tc := range cases {

@@ -22,7 +22,7 @@ func noSync(n int) []byte {
 }
 
 // 音频之后的填充、垃圾、不完整的帧头或帧(其后可接 ID3v1):严格模式报错,首个异常与
-// 宽松模式相同;宽松模式交出所有完整的帧,跳过的字节、截断与尾部标签记入报告。
+// 宽松模式相同。宽松模式交出所有完整的帧,跳过的字节、截断与尾部标签记入报告。
 func TestLenientTrailingData(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -69,7 +69,7 @@ func TestLenientTrailingData(t *testing.T) {
 	}
 }
 
-// 帧之间夹着垃圾:宽松模式跳过它,从其后的帧继续,两种读取方式结果相同;垃圾之前的
+// 帧之间夹着垃圾:宽松模式跳过它,从其后的帧继续,两种读取方式结果相同。垃圾之前的
 // 输出逐字节相同,重新同步后的第一帧不能回指垃圾之前的数据。
 func TestLenientResyncAfterJunk(t *testing.T) {
 	x, starts, k := lameStream(t)
@@ -111,9 +111,9 @@ func TestLenientResyncAfterJunk(t *testing.T) {
 	}
 }
 
-// 每一帧之后都夹着一个垃圾字节:帧长处落在垃圾上,按帧长精确确认会把这一串完好的帧全部
-// 丢掉。重新同步还接受帧后 resyncSlack 字节内出现同格式帧头的候选,这些帧一帧不少地解出;
-// shine 不用 bit reservoir,输出与完好的流逐字节相同。
+// 一串帧之后各夹着一个垃圾字节,所以帧长处落在垃圾上,按帧长精确确认会把这一串完好的帧全部
+// 丢掉。重新同步还接受帧后 resyncSlack 字节内出现同格式帧头的候选,这些帧一帧不少地解出。
+// shine 不用 bit reservoir,所以输出与完好的流逐字节相同。
 func TestLenientResyncKeepsFramesFollowedByJunk(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -141,8 +141,8 @@ func TestLenientResyncKeepsFramesFollowedByJunk(t *testing.T) {
 	}
 }
 
-// 松弛只在重新同步里用,且到 resyncSlack 为止:帧后第 resyncSlack 字节处的帧头还算,再
-// 远一字节不算;精确的规则(slack 为零)不接受帧头前的任何垃圾。
+// 松弛只在重新同步里用,且到 resyncSlack 为止,也就是帧后第 resyncSlack 字节处的帧头
+// 还算,再远一字节不算。精确的规则(slack 为零)不接受帧头前的任何垃圾。
 func TestCandidateSlackBoundary(t *testing.T) {
 	h := mkHeader(3, 1, 1, 9, 0, 0, 0, 0, 0) // 417 B
 	hdr, err := parseFrameHeader(h)
@@ -170,9 +170,9 @@ func TestCandidateSlackBoundary(t *testing.T) {
 	}
 }
 
-// 一帧中间丢了字节:它的帧长指向下一帧内部,帧内找得到下一帧的起点。宽松模式丢弃
-// 这一帧,从下一帧继续,两帧之后输出与完好的流逐字节相同;严格模式报同步丢失。
-// 损坏的是倒数第二帧时,最后一帧作为候选,它的帧长处是 ID3v1 或流结束同样成立,损坏的
+// 一帧中间丢了字节,所以它的帧长指向下一帧内部,帧内找得到下一帧的起点。宽松模式丢弃
+// 这一帧,从下一帧继续,两帧之后输出与完好的流逐字节相同。严格模式报同步丢失。
+// 损坏的是倒数第二帧时,最后一帧作为候选,它的帧长处是 ID3v1 或流结束同样成立。损坏的
 // 帧仍被丢弃,而不是连同最后一帧的开头一起当作完好的帧交出。
 func TestLenientDropsDamagedFrame(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -221,13 +221,13 @@ func TestLenientDropsDamagedFrame(t *testing.T) {
 			if !slices.Equal(got[len(got)-tail:], want[len(want)-tail:]) {
 				t.Fatal("output does not recover after the dropped frame")
 			}
-			// shine 的帧不回指 bit reservoir,输出看不出断档标记;丢弃一帧之后交出的第一帧须带它
+			// shine 的帧不回指 bit reservoir,输出看不出断档标记。丢弃一帧之后交出的第一帧须带断档标记
 			checkGapOnlyAt(t, data, len(starts)-1, k)
 		})
 	}
 }
 
-// 流中间夹着格式不同的帧:严格模式报不支持;宽松模式按垃圾跳过,从其后同格式的帧继续。
+// 流中间夹着格式不同的帧:严格模式报不支持。宽松模式按垃圾跳过,从其后同格式的帧继续。
 func TestLenientSkipsOtherFormat(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -241,7 +241,8 @@ func TestLenientSkipsOtherFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 第二份从断档之后开始,回指断档之前数据的 granule 输出静音,只比较长度与第一份
+	// 第二份从断档之后开始,IMDCT 重叠与合成滤波器状态接着第一份的结尾,开头与单独解码的
+	// one 不同,所以只比较长度与第一份
 	if len(got) != 2*len(one) || !slices.Equal(got[:len(one)], one) {
 		t.Fatalf("%d samples, want %d with the first copy unchanged", len(got), 2*len(one))
 	}
@@ -252,7 +253,7 @@ func TestLenientSkipsOtherFormat(t *testing.T) {
 	}
 }
 
-// 重新同步只在 mayStart 里的字节上检查候选:标签的首字母 T、I、A、L 都要在其中,
+// 重新同步只在 mayStart 里的字节上检查候选,所以标签的首字母 T、I、A、L 都要在其中,
 // 垃圾之后的标签才认得出。标签之后是流结束时记为尾部标签,是帧时记为流中间的标签。
 func TestResyncStopsAtEveryTagKind(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
@@ -348,8 +349,8 @@ func TestLenientUnreadableTags(t *testing.T) {
 }
 
 // 一串标签之后不是重新同步可以接受的帧(帧头有效却确认不了,或是垃圾):标签不在流尾。
-// 严格模式报标签之后的未知数据,指向最后一个标签的起点;宽松模式记下同一处异常,把这串
-// 标签计为流中间的标签,其后的数据交给帧的规则——完好的帧照常交出,垃圾从后面重新同步。
+// 严格模式报标签之后的未知数据,指向最后一个标签的起点。宽松模式记下同一处异常,把这串
+// 标签计为流中间的标签。其后的数据交给帧的规则,完好的帧照常交出,垃圾从后面重新同步。
 func TestTagRunBeforeUnconfirmedData(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -358,7 +359,7 @@ func TestTagRunBeforeUnconfirmedData(t *testing.T) {
 	first := Issue{Kind: IssueCorrupt, Frame: k, Offset: int64(starts[k])}
 
 	t.Run("strict", func(t *testing.T) {
-		// 帧头有效,帧体只有 100 字节:帧头本身不足以说明标签在流中间
+		// 帧头有效,帧体只有 100 字节。帧头本身不足以说明标签在流中间
 		data := cat(shine[:starts[k]], id3v1Tag(), shine[starts[k]:starts[k]+100])
 		d, _, err := decodeMode(t, bytes.NewReader(data), Strict())
 		var c *CorruptError
@@ -407,7 +408,7 @@ func TestTagRunBeforeUnconfirmedData(t *testing.T) {
 	})
 }
 
-// 宽松模式丢弃了所有的帧:没有可以交付的音频,以 ErrNoAudio 结束;严格模式报截断。
+// 宽松模式丢弃了所有的帧,所以没有可以交付的音频,以 ErrNoAudio 结束。严格模式报截断。
 func TestLenientNoAudio(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	data := shine[:200] // 第一帧只剩 200 字节
@@ -420,7 +421,8 @@ func TestLenientNoAudio(t *testing.T) {
 }
 
 // 只有标签帧、本来就没有音频帧的流(VBRI 声明 0 帧):两种模式都正常结束,没有样本,
-// 报告干净。宽松模式的 ErrNoAudio 只用于丢弃了帧之后。
+// 报告干净。宽松模式的 ReadPCM 只在丢弃、跳过或截断了数据而一帧也没解出时返回
+// ErrNoAudio。
 func TestTagFrameOnlyStreamEndsCleanly(t *testing.T) {
 	data := vbriStream(0, 0)
 	for _, m := range []struct {
@@ -469,7 +471,7 @@ func TestTagFrameOnlyStreamWithAnomaliesEndsNormally(t *testing.T) {
 }
 
 // 一串标签中间有一个读不下去的:它之前读完的标签算流中间的标签(没有止于流尾),不能随这串
-// 标签一起被忘掉;出问题的那个标签按损坏处理。
+// 标签一起被忘掉。出问题的那个标签按损坏处理。
 func TestBrokenTagKeepsTheTagsBeforeIt(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	starts, _ := audioFrames(t, shine)
@@ -533,7 +535,7 @@ func TestResyncSkipsAnAPEFooterWhole(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// 垃圾与整个 APEv2 都按垃圾跳过;停在 footer 的重新同步与其后找到帧的各算一次
+			// 垃圾与整个 APEv2 都按垃圾跳过。停在 footer 的重新同步与其后找到帧的各算一次
 			r := d.Report()
 			wantResyncs := int64(1)
 			if tc.tail != nil {

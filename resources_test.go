@@ -79,9 +79,9 @@ func TestSteadyStateDecodingDoesNotAllocate(t *testing.T) {
 }
 
 // 内存约束:扣除 Go 运行时、输入语料与调用方缓冲后,单实例峰值存活堆
-// ≤ 4 MiB;同格式 5 分钟与 60 分钟流的存活堆增量 ≤ 1 MiB。流由无标签的
-// shine 样例(191 帧,约 5 s)首尾相接而成;该样例首帧不引用 reservoir,
-// 循环拼接后仍是合法流。
+// ≤ 4 MiB,同格式 5 分钟与 60 分钟流的存活堆增量 ≤ 1 MiB。流由无标签的
+// shine 样例(191 帧,约 5 s)首尾相接而成。该样例首帧不引用 reservoir,
+// 所以循环拼接后仍是合法流。
 func TestDecoderMemoryBounded(t *testing.T) {
 	if testing.Short() {
 		t.Skip("decodes 60 minutes of audio")
@@ -157,7 +157,7 @@ func TestTagSkipAllocationBounded(t *testing.T) {
 }
 
 // 重新同步:扫过一长段像帧同步、帧头或标签标识的垃圾,检查候选的判断不产生与垃圾长度成
-// 正比的堆分配;结果仍然正确。输出缓冲复用,不累积 PCM。
+// 正比的堆分配,结果仍然正确。输出缓冲复用,不累积 PCM。
 func TestResyncAllocationBounded(t *testing.T) {
 	shine := readCorpus(t, "sine440-stereo-44k1-cbr192-shine.mp3")
 	_, want := decodeAll(t, bytes.NewReader(cat(shine, shine)))
@@ -165,26 +165,29 @@ func TestResyncAllocationBounded(t *testing.T) {
 		name    string
 		pattern []byte
 		bound   uint64 // 扫过 1 MiB 垃圾允许的堆分配总量
-		// 垃圾整段都被跳过且只重新同步一次;否则垃圾里的标签标识会被识别、失败,逐个计入
+		// 垃圾整段都被跳过且只重新同步一次。否则垃圾里的标签标识会被识别、失败,逐个计入
 		// 报告,这时只核对解出的帧数
 		skipsAll bool
 	}{
 		{"sync bytes", []byte{0xFF}, 2 << 20, true},
-		// 同格式的有效帧头成簇出现,帧长处及其后的松弛范围内却没有帧头:每个候选还要检查
+		// 同格式的有效帧头成簇出现,帧长处及其后的松弛范围内却没有帧头,所以每个候选还要检查
 		// 这一段字节。帧头簇的间隔大于帧长加 resyncSlack,否则垃圾会被当作帧交出
 		{"valid headers", cat(bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 8), make([]byte, 1024-32)), 2 << 20, true},
 		// 除了保留的 emphasis,其余都像有效的帧头
 		{"reserved emphasis", []byte{0xFF, 0xFB, 0x90, 0x02}, 2 << 20, true},
 		// 头无效的 ID3 标识:每个都要判断头是否有效,判断不分配
 		{"ID3 with a size byte over 0x7F", []byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0x80}, 2 << 20, true},
-		// 每个标识都被识别、读不下去:每个标识构造一个错误(LYRICSBEGIN 每次 24 B,约每
-		// 输入字节 2.2 B),分配与标识的个数成正比,压不到 2 MiB 以下,所以这两行各有上限
+		// 下面两行的分配与垃圾长度成正比,所以各自单独给上限,只比实测值高约四分之一。这样
+		// 每个标识的分配变多时测试就会失败。LYRICSBEGIN 的每个标识都被识别、读不下去,每个
+		// 标识构造一个错误(每次 24 B,约每输入字节 2.2 B),实测约 2.4 MiB,超过其余几行的
+		// 2 MiB。TAG 被当作 ID3v1 读完 128 字节,其后不是帧也不是标签,每读完一个就构造错误,
+		// 实测约 0.8 MiB
 		{"LYRICSBEGIN without an end", []byte("LYRICSBEGIN"), 3 << 20, false},
 		{"TAG", []byte("TAG"), 1 << 20, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// 垃圾以零字节开头:紧跟在帧后的完整帧头会被当作一个未经确认的帧交出,而不是
-			// 由重新同步扫过;以零字节结尾:最后一个标识不会越过垃圾吃掉其后的帧
+			// 垃圾以零字节开头,否则紧跟在帧后的完整帧头会被当作一个帧交出,而不是
+			// 由重新同步扫过。垃圾以零字节结尾,最后一个标识才不会越过垃圾吃掉其后的帧
 			junk := cat([]byte{0}, bytes.Repeat(tc.pattern, 1<<20/len(tc.pattern)), make([]byte, 256))
 			data := cat(shine, junk, shine)
 			ctx := context.Background()

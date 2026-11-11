@@ -14,13 +14,13 @@ import (
 	"time"
 )
 
-// fuzz 目标分工:FuzzParseTags 覆盖标签与帧头解析;FuzzFrameData 在一组合法
-// 帧头下变异 side information 与 main data(帧数据处理);FuzzStream 覆盖任意
+// fuzz 目标分工:FuzzParseTags 覆盖标签与帧头解析,FuzzFrameData 在一组合法
+// 帧头下变异 side information 与 main data(帧数据处理),FuzzStream 覆盖任意
 // 字节流的完整流式解码。后两者都在严格与宽松两种模式下运行。
 
-// fuzzResult 是一次完整解码的摘要:PCM 只保留 FNV-1a 哈希,不留存输出,使单个
-// 输入的内存只反映解码器本身。报告的字段取自终止时的 Report;解码器没有建成时
-// 它们保持零值。
+// fuzzResult 是一次完整解码的摘要。PCM 只保留 FNV-1a 哈希,不留存输出,使单个
+// 输入的内存只反映解码器本身。报告的字段取自终止时的 Report,解码器没有建成时
+// 保持零值。
 type fuzzResult struct {
 	class                     string // errClass 的终止类别
 	frames, decoded, samples  int64
@@ -30,7 +30,7 @@ type fuzzResult struct {
 	clean                     bool   // 报告没有异常
 	midstream                 int64  // 流中间跳过的标签个数
 	trailing                  TagSet // 尾部标签
-	first                     Issue  // 第一处异常;没有时为零值
+	first                     Issue  // 第一处异常,没有时为零值
 	dropped, skipped, resyncs int64  // 宽松模式丢弃的帧、跳过的字节与重新同步的次数
 	concealed, crcErrors      int64  // 宽松模式容错的 granule 数与 CRC 不符的帧数
 	truncated                 bool   // 流在帧、帧头或标签中间结束
@@ -97,12 +97,12 @@ func fuzzDecode(t *testing.T, r io.Reader, bufFrames int, opts ...Option) fuzzRe
 }
 
 // fuzzInputDeadline 是单个 fuzz 输入的执行上限。Go fuzz 引擎不会识别卡住的
-// 输入,这里由独立 goroutine 计时:超时即 panic 使 worker 崩溃,引擎据此保存
-// 该输入为 crasher;不依赖被测解码器自己的取消检查。
+// 输入,所以由独立 goroutine 计时。超时即 panic,使 worker 崩溃,引擎据此把
+// 该输入保存为 crasher。计时不依赖被测解码器自己的取消检查。
 const fuzzInputDeadline = 10 * time.Second
 
 // fuzzAllocBudget 是单个 fuzz 输入允许的堆分配总量。一个解码器实例构造时约
-// 分配 200 KB,稳态解码不分配;预算留出量级余量,超出即视为失控分配并作为
+// 分配 200 KB,稳态解码不分配。预算留出量级余量,超出即视为失控分配,并作为
 // 可复现的 crasher 保存。
 const fuzzAllocBudget = 16 << 20
 
@@ -169,7 +169,7 @@ func parseTagsOnce(t *testing.T, b []byte) {
 }
 
 // 全部 2^21 种同步字之后的帧头取值:解析成功的帧头字段自洽,且帧长容得下
-// 帧头、CRC 与 side information(帧循环据此切片);失败只归为损坏或不支持,
+// 帧头、CRC 与 side information(帧循环据此切片)。失败只归为损坏或不支持,
 // 不支持仅在没有保留值时出现。
 func TestParseFrameHeaderAllValues(t *testing.T) {
 	rates := map[mpegVersion][]int{mpeg1: {44100, 48000, 32000}, mpeg2: {22050, 24000, 16000}, mpeg25: {11025, 12000, 8000}}
@@ -209,7 +209,7 @@ func TestParseFrameHeaderAllValues(t *testing.T) {
 	}
 }
 
-// fuzzFrameHeaders 是 FuzzFrameData 的帧头:覆盖三个版本、单/双声道、MS 与
+// fuzzFrameHeaders 是 FuzzFrameData 的帧头,覆盖三个版本、单/双声道、MS 与
 // intensity stereo(mode extension)、有无 CRC 与高低码率。
 var fuzzFrameHeaders = [][4]byte{
 	mkHeader(3, 1, 1, 11, 0, 0, 1, 2, 0), // MPEG-1 192k 44.1k joint MS
@@ -224,7 +224,7 @@ var fuzzFrameHeaders = [][4]byte{
 
 // buildFrames 用 sel 选定的帧头把 body 切成至多 4 帧(不足补 0),有 CRC 时按
 // 帧头第 16–31 位与 side information 写入正确的 CRC,使变异越过 CRC 校验进入
-// 解码核心;sel 的最高位置位时不写 CRC(留零),使宽松模式的 CRC 不符容错可达。
+// 解码核心。sel 的最高位置位时不写 CRC(留零),使宽松模式的 CRC 不符容错可达。
 func buildFrames(sel byte, body []byte) []byte {
 	hb := fuzzFrameHeaders[int(sel)%len(fuzzFrameHeaders)]
 	badCRC := sel&0x80 != 0
@@ -286,7 +286,7 @@ func FuzzStream(f *testing.F) {
 	f.Add(append(fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20), id3v1Tag()...))
 	f.Add(cat(fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20),
 		apeTag(false, [2]string{"Title", "gl3d"}), lyrics3v2("la"), tagPlus(), id3v1Tag()))
-	// 流中间的标签与标签帧:严格模式报错,宽松模式跳过
+	// 流中间的标签与标签帧在严格模式下报错,在宽松模式下跳过
 	tone := fuzzSeedFile(f, "tone10ms-stereo-44k1-cbr128-lame.mp3", 1<<20)
 	f.Add(cat(tone, id3v2Tag(100), tone))
 	f.Add(cat(tone, tone))
@@ -366,7 +366,7 @@ func streamOnce(t *testing.T, data []byte) [2]fuzzResult {
 		}
 		results[i] = whole
 	}
-	// 宽松模式不以格式错误结束:截断与损坏都在报告里
+	// 宽松模式不以格式错误结束,而是把截断与损坏都记在报告里
 	if lax := results[1]; lax.class == "truncated" || lax.class == "corrupt" {
 		t.Fatalf("lenient decode ended with %s: %+v", lax.class, lax)
 	}

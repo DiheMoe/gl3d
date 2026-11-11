@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// chunkReader 按伪随机长度(1..max)分块返回数据;最后一块与 io.EOF 同返——Reader 的合法风格,解码不得依赖"先数据后 EOF"。
+// chunkReader 按伪随机长度(1..max)分块返回数据。最后一块与 io.EOF 同返——Reader 的合法风格,解码不得依赖"先数据后 EOF"。
 type chunkReader struct {
 	data []byte
 	rng  *rand.Rand
@@ -30,7 +30,7 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// stutterReader 隔次返回 (0, nil):偶发无进展是 Reader 的合法行为,解码须容忍并继续(区别于持续无进展的报错)。
+// stutterReader 隔次返回 (0, nil)。偶发无进展是 Reader 的合法行为,解码须容忍并继续(区别于持续无进展的报错)。
 type stutterReader struct {
 	r    io.Reader
 	idle bool
@@ -51,7 +51,7 @@ type decodeResult struct {
 	sampleRate, nchans int
 }
 
-// decodeWith 以严格模式、bufFrames 个采样帧的输出缓冲完整解码 r;错误存入返回值而非 t.Fatal,供用例断言。
+// decodeWith 以严格模式、bufFrames 个采样帧的输出缓冲完整解码 r。错误存入返回值而非 t.Fatal,供用例断言。
 func decodeWith(t *testing.T, r io.Reader, bufFrames int) decodeResult {
 	t.Helper()
 	ctx := context.Background()
@@ -124,7 +124,7 @@ func TestStreamingInvarianceMatrix(t *testing.T) {
 }
 
 // 源在交付全部数据的同时返回非 EOF 错误:已解码样本照常交付,gapless 尾裁按声明的
-// 位置在解码时完成,交付的样本与正常结束时相同;最终以该源错误结束。
+// 位置在解码时完成,交付的样本与正常结束时相同。最终以该源错误结束。
 func TestStreamingSourceErrorAtEnd(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
 	want := decodeWith(t, bytes.NewReader(data), 4096)
@@ -156,7 +156,7 @@ func (s *starveReader) Read(p []byte) (int, error) {
 	return m, err
 }
 
-// 中途持续无进展必须报 io.ErrNoProgress,而不是无限 (0, nil) 或伪装正常结束;已有解码产出证明饥饿发生在流中段。
+// 中途持续无进展必须报 io.ErrNoProgress,而不是无限 (0, nil) 或伪装正常结束。已有解码产出证明饥饿发生在流中段。
 func TestStreamingStarvedMidStream(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
 	got := decodeWith(t, &starveReader{r: bytes.NewReader(data), n: len(data) / 2}, 4096)

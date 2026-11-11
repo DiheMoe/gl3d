@@ -16,7 +16,7 @@ const (
 	tagPlusSize  = 227  // TAG+ 扩展标签的长度,其后紧接 ID3v1
 	lyrics3v1Max = 5100 // Lyrics3 v1 正文的长度上限
 
-	// tagProbeSize 是识别标签起点要看的字节数:只有 footer 的 APEv2 要看到第一个
+	// tagProbeSize 是识别标签起点要看的字节数。只有 footer 的 APEv2 要看到第一个
 	// 条目的完整键名(8 字节条目头、至多 255 字节键名与 NUL)
 	tagProbeSize = 8 + 255 + 1
 
@@ -40,7 +40,7 @@ func tagAt(b []byte) TagSet {
 	if kind := magicTagAt(b); kind != 0 {
 		return kind
 	}
-	// 标识认得、头却无效:其后的字节不是 APEv2 条目,否则 "ID3" 之后碰巧像条目的数据
+	// 标识认得、头却无效时,其后的字节不是 APEv2 条目,否则 "ID3" 之后碰巧像条目的数据
 	// 会被当成标签一路跳过
 	if bytes.HasPrefix(b, id3Magic) || bytes.HasPrefix(b, apeMagic) {
 		return 0
@@ -52,7 +52,7 @@ func tagAt(b []byte) TagSet {
 }
 
 // magicTagAt 识别 b 起点带标识的标签:tagAt 识别的种类中,除只有 footer 的 APEv2
-// 以外的全部。重新同步扫描垃圾时只认这些:APEv2 条目没有标识,逐字节试探会误认。
+// 以外的全部。重新同步扫描垃圾时只认这些,因为 APEv2 条目没有标识,逐字节试探会误认。
 func magicTagAt(b []byte) TagSet {
 	switch {
 	case len(b) >= tagPlusSize+3 && string(b[:4]) == "TAG+" && isID3v1Start(b[tagPlusSize:]):
@@ -72,8 +72,8 @@ func magicTagAt(b []byte) TagSet {
 }
 
 // apeItemAt 报告 b 起点是否像一个 APEv2 条目:4 字节值长度、4 字节标志(保留位
-// 为零)、2–255 个可打印 ASCII 字符的键名与结尾的 NUL。像则返回条目头与键名的
-// 总长,否则返回 0。只有 footer 的 APEv2 标签从第一个条目开始。
+// 为零)、2–255 个可打印 ASCII 字符的键名与结尾的 NUL。像则返回条目头、键名与
+// NUL 的总长,否则返回 0。只有 footer 的 APEv2 标签从第一个条目开始。
 func apeItemAt(b []byte) int {
 	if len(b) < 8 || binary.LittleEndian.Uint32(b[4:])&apeItemReserved != 0 {
 		return 0
@@ -92,12 +92,12 @@ func apeItemAt(b []byte) int {
 	return 0
 }
 
-// apeHeader 是 APEv2 头部或 footer 的字段;size 含条目与 footer,不含头部。
+// apeHeader 是 APEv2 头部或 footer 的字段。size 含条目与 footer,不含头部。
 type apeHeader struct {
 	size, items, flags uint32
 }
 
-// parseAPEHeader 解析 b 起点的 APEv2 头部或 footer;版本须为 1000(APEv1)或 2000。
+// parseAPEHeader 解析 b 起点的 APEv2 头部或 footer。版本须为 1000(APEv1)或 2000。
 func parseAPEHeader(b []byte) (apeHeader, bool) {
 	if len(b) < apeTagSize || !bytes.HasPrefix(b, apeMagic) {
 		return apeHeader{}, false
@@ -151,12 +151,12 @@ func (f *framer) skipSpan(ctx context.Context, n, at int64, what string) error {
 }
 
 // skipAPEv2 跳过 APEv2 标签(也接受 v1)。带头部的标签按头部的长度跳到 footer
-// 并核对;只有 footer 的标签逐个跳过条目,到 footer 处核对条目数与总长。
+// 并核对。只有 footer 的标签逐个跳过条目,到 footer 处核对条目数与总长。
 func (f *framer) skipAPEv2(ctx context.Context, at int64) error {
 	if h, ok := parseAPEHeader(f.s.buf); ok {
 		switch {
 		case h.flags&apeIsHeader == 0:
-			// 起点就是 footer:没有条目的空标签
+			// 起点就是 footer,这样的标签只能是没有条目的空标签
 			if h.size != apeTagSize || h.items != 0 {
 				return &CorruptError{Frame: f.frames, Detail: "malformed APEv2 tag"}
 			}
@@ -195,7 +195,7 @@ func (f *framer) skipAPEv2(ctx context.Context, at int64) error {
 	}
 }
 
-// apeFooter 核对并跳过 APEv2 footer:它给出的总长(含 footer、不含头部)与条目数
+// apeFooter 核对并跳过 APEv2 footer。footer 给出的总长(含 footer、不含头部)与条目数
 // 须与头部或逐个数出的结果一致。
 func (f *framer) apeFooter(ctx context.Context, at, size int64, items uint32) error {
 	if err := f.s.fill(ctx, apeTagSize); err != nil {
@@ -213,7 +213,7 @@ func (f *framer) apeFooter(ctx context.Context, at, size int64, items uint32) er
 
 // skipLyrics3 跳过 Lyrics3 标签。v2 是 LYRICSBEGIN 之后的一串字段(3 个大写字母的
 // 标识加 5 位十进制长度),以 6 位十进制总长(含 LYRICSBEGIN,不含其自身与结束
-// 标记)与 LYRICS200 结束;v1 是至多 5100 字节的正文,以 LYRICSEND 结束。
+// 标记)与 LYRICS200 结束。v1 是至多 5100 字节的正文,以 LYRICSEND 结束。
 func (f *framer) skipLyrics3(ctx context.Context, at int64) error {
 	if err := f.s.fill(ctx, len(lyricsBegin)+8); err != nil {
 		return err

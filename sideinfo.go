@@ -15,13 +15,13 @@ type granuleInfo struct {
 	mixedBlock       bool
 	tableSelect      [3]int
 	subblockGain     [3]int
-	regionCount      [2]int // scalefactor band 计数;切换块为隐式值(短块 8、混合块等 7),255 表示到末尾
+	regionCount      [2]int // scalefactor band 计数。切换块为隐式值(短块 8、混合块等 7),255 表示到末尾
 	preflag          int
 	scalefacScale    int
 	count1Table      int
 }
 
-// shape 返回 scalefactor band 布局:只有 block_type 2 可能是短块或混合块,
+// shape 返回 scalefactor band 布局。只有 block_type 2 可能是短块或混合块,
 // 起始/结束块置了 mixed_block_flag 也按长块排列。
 func (gi *granuleInfo) shape() blockShape {
 	if !gi.windowSwitching || gi.blockType != 2 {
@@ -35,11 +35,11 @@ func (gi *granuleInfo) shape() blockShape {
 
 type sideInfo struct {
 	mainDataBegin int
-	scfsi         [2][4]int         // 仅 MPEG-1;置位组复用 granule 0 的 scalefactor
-	gr            [2][2]granuleInfo // [granule][声道];LSF 只用 granule 0,单声道只用声道 0
+	scfsi         [2][4]int         // 仅 MPEG-1,置位组复用 granule 0 的 scalefactor
+	gr            [2][2]granuleInfo // [granule][声道]。LSF 只用 granule 0,单声道只用声道 0
 }
 
-// parseSideInfo 把一帧的 side information 解析进 si;未使用的槽位保持零值。
+// parseSideInfo 把一帧的 side information 解析进 si,未使用的槽位保持零值。
 func parseSideInfo(h *frameHeader, data []byte, si *sideInfo) error {
 	if len(data) < h.sideInfoSize {
 		return fmt.Errorf("gl3d: truncated side information: %d < %d", len(data), h.sideInfoSize)
@@ -117,7 +117,7 @@ func parseSideInfo(h *frameHeader, data []byte, si *sideInfo) error {
 			}
 			if lsf {
 				// LSF intensity 右声道使用另一套 scalefac_compress 编码,
-				// 不派生 preflag;只有普通声道的最后一组编码带 preflag。
+				// 不派生 preflag。只有普通声道的最后一组编码带 preflag。
 				intensityR := h.channelMode == modeJointStereo && h.modeExt&1 != 0 && ch == 1
 				if gi.scalefacCompress >= 500 && !intensityR {
 					gi.preflag = 1

@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// errClass 把解码的终止错误归入五类:无音频、不支持、截断、损坏、资源限制;
-// 不在这五类中的错误原样返回文本,会被调用方判为未分类。
+// errClass 把解码的终止错误归入五类:无音频、不支持、截断、损坏、资源限制。
+// 不在这五类中的错误返回 "other: " 加错误文本,会被调用方判为未分类。
 func errClass(err error) string {
 	var (
 		u *UnsupportedError
@@ -32,9 +32,9 @@ func errClass(err error) string {
 	return "other: " + err.Error()
 }
 
-// 在短样例的每个字节位置截断,按截断点所在的结构断言结果:帧或标签内部不完整
-// 为截断;无可信总长度声明时恰在帧边界结束是合法短流;有 Xing 帧数声明时少帧
-// 仍是截断。结构位置取自 ffprobe 的包位置与 ID3 头。
+// 在短样例的每个字节位置截断,按截断点所在的结构断言结果。帧或标签内部不完整
+// 为截断。无可信总长度声明时,恰在帧边界结束是合法短流。有 Xing 帧数声明时,
+// 少帧仍是截断。结构位置取自 ffprobe 的包位置与 ID3 头。
 func TestTruncationAtEveryByte(t *testing.T) {
 	cases := []struct {
 		file string
@@ -45,7 +45,7 @@ func TestTruncationAtEveryByte(t *testing.T) {
 			"short-tone-stereo-44k1-cbr192.mp3",
 			func(n int) (string, int64) {
 				switch {
-				case n <= 2: // 空输入,或 "I"/"ID":不足以识别为标签
+				case n <= 2: // 空输入或 "I"/"ID" 都不足以识别为标签
 					return "noaudio", 0
 				case n < 44:
 					return "truncated", 0
@@ -93,7 +93,7 @@ func TestTruncationAtEveryByte(t *testing.T) {
 
 // 两个样例的每个截断点都经过 streamOnce:两种模式、整体与分块读取的结果一致,
 // 模式等价成立,宽松模式不以截断或损坏结束,输出有限。TestTruncationAtEveryByte
-// 断言严格模式的错误类别,这里检查两种模式之间的一致性,所以每个文件只开一个子测试。
+// 断言严格模式的错误类别,这里检查两种模式之间的一致性。
 func TestTruncationSweepModes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("每个截断点解码四遍,-short 下跳过")

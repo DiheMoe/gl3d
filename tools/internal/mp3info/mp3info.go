@@ -56,8 +56,8 @@ type Info struct {
 	VBRI        *VBRIInfo  `json:"vbri,omitempty"`
 	LAME        *LAMEInfo  `json:"lame,omitempty"`
 	// Audio 是第一个音频帧。首帧是 Xing/Info/VBRI 标签帧时取其后一帧,因为标签帧的
-	// 帧头可能与音频帧不同(FFmpeg 在 joint stereo 流中把 Info 帧写成 stereo);
-	// 标签帧之后没有有效帧时为 nil。
+	// 帧头可能与音频帧不同(FFmpeg 在 joint stereo 流中把 Info 帧写成 stereo)。
+	// 标签帧之后没有有效帧时 Audio 为 nil。
 	Audio *Header `json:"audio,omitempty"`
 }
 

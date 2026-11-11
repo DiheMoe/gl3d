@@ -9,7 +9,7 @@ import (
 // ID3v2、Xing/Info、LAME 扩展与 VBRI 标签解析。所有多字节字段大端。
 
 // parseID3v2Header 解析 10 字节 ID3v2 头。size 为标签总字节数(含 10
-// 字节头与体,不含 footer);size 字段是 syncsafe,每字节仅低 7 位有效。
+// 字节头与体,不含 footer)。size 字段是 syncsafe,每字节仅低 7 位有效。
 // footer 仅 ID3v2.4 可出现,存在时调用方须在 size 之外再跳 10 字节。
 func parseID3v2Header(b [10]byte) (size int, footer bool, err error) {
 	if b[0] != 'I' || b[1] != 'D' || b[2] != '3' {
@@ -26,21 +26,21 @@ func parseID3v2Header(b [10]byte) (size int, footer bool, err error) {
 }
 
 // id3v2HeaderAt 报告 b 起点是否是有效的 ID3v2 头:标识 "ID3",size 的四个字节都是
-// syncsafe。接受的范围同 parseID3v2Header,但不构造错误值,不分配内存:逐字节试探垃圾时
-// 先用它排除。
+// syncsafe。接受的范围同 parseID3v2Header,但不构造错误值,不分配内存,所以逐字节试探
+// 垃圾时先用 id3v2HeaderAt 排除。
 func id3v2HeaderAt(b []byte) bool {
 	return len(b) >= 10 && string(b[:3]) == "ID3" && (b[6]|b[7]|b[8]|b[9])&0x80 == 0
 }
 
 type xingInfo struct {
-	kind    string // "Xing"=VBR/ABR,"Info"=CBR;统一小写存储
+	kind    string // "Xing"=VBR/ABR,"Info"=CBR。统一小写存储
 	frames  *uint32
 	bytes   *uint32
 	toc     bool
 	quality *uint32
 }
 
-// parseXing 从 magic 开始解析 Xing/Info 头;flags 低 4 位依次标记
+// parseXing 从 magic 开始解析 Xing/Info 头。flags 低 4 位依次标记
 // frames/bytes/TOC(100 字节)/quality 是否存在,存在的字段按此顺序紧随。
 // 返回的 lameOff 是其后 LAME 扩展的起始偏移。
 func parseXing(b []byte) (x *xingInfo, lameOff int, err error) {
@@ -98,9 +98,9 @@ type lameTag struct {
 	encPadding int
 }
 
-// parseLAMETag 读取 Xing/Info 字段区之后的 36 字节 LAME 扩展标签;不足
+// parseLAMETag 读取 Xing/Info 字段区之后的 36 字节 LAME 扩展标签。不足
 // 36 字节、编码器字段为空或格式不合法时返回 ok=false,视为无 LAME 标签。
-// 兼容写入相同扩展布局的编码器名称;NUL 只能作为字段末尾的填充。
+// 兼容写入相同扩展布局的编码器名称。NUL 只能作为字段末尾的填充。
 func parseLAMETag(b []byte) (l *lameTag, ok bool) {
 	if len(b) < 36 {
 		return nil, false
@@ -124,8 +124,8 @@ func parseLAMETag(b []byte) (l *lameTag, ok bool) {
 }
 
 // infoTagCRCValid 校验 LAME 扩展末尾、位于帧内 crcPos 的 Info 标签 CRC
-// (CRC-16/ARC:反射多项式 0xA001、初值 0)。写入方的覆盖范围不一:LAME
-// 覆盖 CRC 字段之前的全部字节;FFmpeg 固定覆盖帧首 190 字节,计算时 CRC 字段
+// (CRC-16/ARC:反射多项式 0xA001、初值 0)。写入方的覆盖范围不一。LAME
+// 覆盖 CRC 字段之前的全部字节。FFmpeg 固定覆盖帧首 190 字节,计算时 CRC 字段
 // 置 0,帧不足 190 字节时帧尾之后按 0 计。两种约定只在 CRC 字段恰位于第 190
 // 字节时一致,任一吻合即视为有效。
 func infoTagCRCValid(frame []byte, crcPos int) bool {
@@ -164,7 +164,7 @@ type vbriInfo struct {
 	bytes  uint32
 }
 
-// parseVBRI 从 magic 开始解析 VBRI 头;固定部分 26 字节,只取 bytes/frames
+// parseVBRI 从 magic 开始解析 VBRI 头。固定部分 26 字节,只取 bytes/frames
 // 供时长与帧数核对,TOC 与 delay 字段不使用。
 func parseVBRI(b []byte) (*vbriInfo, error) {
 	if len(b) < 26 {

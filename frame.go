@@ -10,12 +10,12 @@ import (
 // ErrSmallBuffer 表示输出缓冲不足以容纳一个采样帧。
 var ErrSmallBuffer = errors.New("gl3d: output buffer smaller than one sample frame")
 
-// decoderDelay 是 IMDCT 与合成滤波器组的结构延迟(528+1 个采样帧);
+// decoderDelay 是 IMDCT 与合成滤波器组的结构延迟(528+1 个采样帧)。
 // gapless 裁剪的标签值须计入它:头裁 enc_delay+529,尾裁 enc_padding−529。
 const decoderDelay = 529
 
-// decodeFrame 取分帧层交出的下一个音频帧并解码;音频正常结束时调用 finish 做流结束
-// 时的校验。
+// decodeFrame 取分帧层交出的下一个音频帧并解码。音频正常结束时调用 finish 做流
+// 结束时的校验。
 func (d *Decoder) decodeFrame(ctx context.Context) error {
 	af, err := d.fr.next(ctx)
 	if err == errEndOfAudio {
@@ -29,7 +29,7 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 	}
 	if err := d.decodeAudio(af.data, af.header, !d.fr.strict && !af.unconfirmed); err != nil {
 		if af.unconfirmed {
-			// 源出错时未经确认交出的首帧解码失败,多半是伪同步:报告真正的原因
+			// 源出错时未经确认交出的首帧解码失败,多半是伪同步,所以报告真正的原因
 			return d.fr.s.err
 		}
 		return err
@@ -38,9 +38,10 @@ func (d *Decoder) decodeFrame(ctx context.Context) error {
 }
 
 // decodeAudio 解码一个完整音频帧,PCM 追加到内部队列。conceal 为真时(宽松模式下
-// 确认过的帧)帧内损坏记入报告后容错:CRC 不符照常解码;side info 非法或所需位数超出
-// main data 时丢弃这一帧,它的 main data 仍并入 bit reservoir,供后续帧回指;
-// scalefactor 或谱数据出错的 granule 按 decodeSpectra 留下的频谱继续。
+// 确认过的帧),帧内损坏记入报告后按下列方式容错:CRC 不符照常解码,side info 非法
+// 或所需位数超出 main data 时丢弃这一帧(这一帧的 main data 仍并入 bit reservoir,
+// 供后续帧回指),scalefactor 或谱数据出错的 granule 按 decodeSpectra 留下的
+// 频谱继续。
 func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error {
 	rep := &d.fr.rep
 	off := 4
@@ -87,7 +88,7 @@ func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error 
 		d.note(err)
 		rep.DroppedFrames++
 		d.dropped++
-		// 分帧层交出这一帧时已经计数;它没有解出,分帧层此后记的异常仍按已解码的帧编号
+		// 分帧层交出这一帧时已经计数。这一帧没有解出,分帧层此后记的异常仍按已解码的帧编号
 		d.fr.frames--
 		d.rsv.advance(mainData)
 		return nil
@@ -100,9 +101,9 @@ func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error 
 	silentGr0 := false
 	for gr := 0; gr < ngr; gr++ {
 		// 码流从中途开始时,开头 granule 的数据起点可能早于流内第一个 main data
-		// 字节,无从解码;MPEG-1 第二个 granule 置了 scfsi 时还要复用第一个 granule
-		// 的 scalefactor,第一个缺数据它也缺。这类 granule 按全零频谱变换(按 granule
-		// 置零同 FFmpeg):输出静音,时长不变
+		// 字节,无从解码。MPEG-1 第二个 granule 置了 scfsi 时还要复用第一个 granule
+		// 的 scalefactor,第一个缺数据,第二个也缺。这类 granule 按全零频谱变换
+		// (按 granule 置零同 FFmpeg),所以输出静音,时长不变
 		silent := br.pos < 8*missing || gr == 1 && silentGr0 && si.scfsi != [2][4]int{}
 		if gr == 0 {
 			silentGr0 = silent
@@ -162,8 +163,8 @@ func (d *Decoder) decodeAudio(frame []byte, fh frameHeader, conceal bool) error 
 	return nil
 }
 
-// commit 把刚解码的一帧计入 PCM 队列:out 是它的交错采样,解码序号从 pcmTotal 起;
-// 落在 gapless 裁剪区间内的采样帧丢弃。
+// commit 把刚解码的一帧计入 PCM 队列。out 是这一帧的交错采样,解码序号从 pcmTotal
+// 起。落在 gapless 裁剪区间内的采样帧丢弃。
 func (d *Decoder) commit(out []float64, nch int) {
 	pos := d.pcmTotal
 	// 尾裁区间按帧在流中的位置给出,换算到解码序号要减去解码时丢弃的帧。换算后不低于
@@ -188,7 +189,7 @@ func cutFrames(s []float64, pos, from, to int64, nch int) []float64 {
 }
 
 // pcmReserve 确保 PCM 队列尾部有 n 个空位并返回该区间(尚未计入队列)。
-// 已交付样本只在空间不足时整体搬走;ReadPCM 只在队列交付完时解码,未交付样本
+// 已交付样本只在空间不足时整体搬走。ReadPCM 只在队列交付完时解码,未交付样本
 // 至多一帧,队列容量因此有界。
 func (d *Decoder) pcmReserve(n int) []float64 {
 	if len(d.pcm)+n > cap(d.pcm) {
@@ -215,7 +216,7 @@ func (d *Decoder) finish() error {
 		}
 	}
 	if r := &d.fr.rep; !d.fr.strict && d.framesDecoded == 0 && (r.DroppedFrames > 0 || r.SkippedBytes > 0 || r.Truncated) {
-		// 宽松模式丢掉了数据而一个帧也没有解出:没有可以交付的音频。没有帧被丢弃、跳过
+		// 宽松模式丢掉了数据而一个帧也没有解出,所以没有可以交付的音频。没有帧被丢弃、跳过
 		// 或截断就什么也没丢,流里本来就没有音频帧(只有标签帧),照常结束
 		return ErrNoAudio
 	}
@@ -228,7 +229,7 @@ func (d *Decoder) finish() error {
 	return nil
 }
 
-// tolerate 记下流结束时发现的异常:严格模式返回 err,宽松模式返回 nil 继续。
+// tolerate 记下流结束时发现的异常。严格模式返回 err,宽松模式返回 nil 继续。
 func (d *Decoder) tolerate(err error) error {
 	d.note(err)
 	if d.fr.strict {
@@ -238,7 +239,7 @@ func (d *Decoder) tolerate(err error) error {
 }
 
 // ReadPCM 向 buf 写入交错 float64 样本,返回交付的采样帧数。零长度 buf
-// 不推进解码;len(buf) 不足一个采样帧返回 ErrSmallBuffer;正常非空请求
+// 不推进解码。len(buf) 不足一个采样帧返回 ErrSmallBuffer。正常非空请求
 // 不会无限返回 (0, nil)。流结束返回 io.EOF,此前已交付的样本有效。
 func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 	if len(buf) == 0 {
@@ -263,7 +264,7 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 			}
 			return 0, io.EOF
 		}
-		// 解码出错:已缓冲样本照常交付,错误排空后返回
+		// 解码出错时,已缓冲样本照常交付,错误排空后返回
 		if err := d.decodeFrame(ctx); err != nil {
 			d.termErr = err
 			d.finished = true
@@ -275,10 +276,10 @@ func (d *Decoder) ReadPCM(ctx context.Context, buf []float64) (int, error) {
 // DecodedFrames 返回原始解码的 PCM 采样帧数(不含 gapless 裁剪)。
 func (d *Decoder) DecodedFrames() int64 { return d.pcmTotal }
 
-// Frames 返回实际交付的 PCM 采样帧数(gapless 裁剪后);io.EOF 后为最终值。
+// Frames 返回实际交付的 PCM 采样帧数(gapless 裁剪后)。io.EOF 后为最终值。
 func (d *Decoder) Frames() int64 { return d.delivered }
 
-// Trimmed 报告是否应用了 gapless 裁剪;为 false 时 Frames 代表解码输出
+// Trimmed 报告是否应用了 gapless 裁剪。返回 false 时 Frames 代表解码输出
 // 长度,不代表编码前音频长度。尾裁需要帧数声明(Report().DeclaredFrames >= 0),
 // 只有头裁时 Frames 仍不是编码器的输入长度。
 func (d *Decoder) Trimmed() bool { return d.trimming }
@@ -295,7 +296,7 @@ func (d *Decoder) Report() Report {
 }
 
 // note 把解码器发现的异常记入报告:帧号为此前已解码的音频帧数,偏移为正在解码的帧的
-// 起点;流结束时发现的异常偏移为流的结尾。错误自带的位置优先。
+// 起点。流结束时发现的异常偏移为流的结尾。错误自带的位置优先。
 func (d *Decoder) note(err error) { d.fr.rep.note(err, d.framesDecoded, d.fr.offset()) }
 
 // wrapFrameErr 给解码深处产生的 CorruptError 补上帧序号。

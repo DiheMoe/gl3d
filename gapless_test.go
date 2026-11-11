@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// infoFrame 定位语料文件中的 Info/Xing 帧:返回帧起点、Xing 头与 LAME 扩展
-// 在帧内的偏移;仅作为构造变异输入的测试夹具。
+// infoFrame 定位语料文件中的 Info/Xing 帧,返回帧起点、Xing 头与 LAME 扩展
+// 在帧内的偏移。仅作为构造变异输入的测试夹具。
 func infoFrame(t *testing.T, data []byte) (start, xo, lameOff int) {
 	t.Helper()
 	if string(data[:3]) == "ID3" {
@@ -49,13 +49,13 @@ func arcCRC(data []byte) uint16 {
 	return c
 }
 
-// setLAMETagCRC 按 LAME 的约定重算 Info 标签 CRC:覆盖 CRC 字段之前的全部字节。
+// setLAMETagCRC 按 LAME 的约定重算 Info 标签 CRC,也就是覆盖 CRC 字段之前的全部字节。
 func setLAMETagCRC(frame []byte, lameOff int) {
 	pos := lameOff + 34
 	binary.BigEndian.PutUint16(frame[pos:], arcCRC(frame[:pos]))
 }
 
-// setFFmpegTagCRC 按 FFmpeg 的约定重算 Info 标签 CRC:覆盖帧首 190 字节,CRC 字段
+// setFFmpegTagCRC 按 FFmpeg 的约定重算 Info 标签 CRC,也就是覆盖帧首 190 字节,CRC 字段
 // 置 0,帧尾之后按 0 计。
 func setFFmpegTagCRC(frame []byte, lameOff int) {
 	pos := lameOff + 34
@@ -66,7 +66,7 @@ func setFFmpegTagCRC(frame []byte, lameOff int) {
 }
 
 // FFmpeg 写的 Info 帧在单声道与 LSF 布局的低码率下可能不足 190 字节,例如 44.1 kHz
-// 单声道 56 kbps 的 182 字节帧;按 FFmpeg 约定计算的 CRC 有效,gapless 信息照常采用。
+// 单声道 56 kbps 的 182 字节帧。按 FFmpeg 约定计算的 CRC 有效,gapless 信息照常采用。
 func TestInfoTagCRCFFmpegShortFrame(t *testing.T) {
 	data := readCorpus(t, "sine440-mono-44k1-cbr96.mp3") // FFmpeg 写入,Info 帧为 96 kbps
 	p, _, lo := infoFrame(t, data)
@@ -87,7 +87,7 @@ func TestInfoTagCRCFFmpegShortFrame(t *testing.T) {
 	}
 }
 
-// 标签 CRC 不符时 Info 帧内容(Xing 帧数、LAME gapless 字段)不可信:不裁剪、
+// 标签 CRC 不符时 Info 帧内容(Xing 帧数、LAME gapless 字段)不可信,所以不裁剪、
 // 不报告已裁剪,也不据其帧数判定截断,按无标签流处理。
 func TestCorruptInfoTagIgnored(t *testing.T) {
 	cases := []struct {
@@ -134,7 +134,7 @@ func TestGaplessPaddingExceedsDecodedLenient(t *testing.T) {
 }
 
 // 裁剪区间与一帧的相对位置:区间在帧外、覆盖帧首、帧尾、帧中间或整帧,余下的采样帧
-// 保持顺序且声道不错位;立体声为主,单声道只留一例复制源与目标都依赖声道步长的区间。
+// 保持顺序且声道不错位。立体声为主,单声道只留一例复制源与目标都依赖声道步长的区间。
 func TestCutFrames(t *testing.T) {
 	frame := func(n, nch int) []float64 { // n 个采样帧,第 i 帧为 (nch·i, …, nch·i+nch−1)
 		s := make([]float64, nch*n)
@@ -218,7 +218,7 @@ func TestXingFrameCountUnknown(t *testing.T) {
 	}
 }
 
-// 头裁与尾裁的区间都跨越帧边界:头裁 2529 个采样帧落在第 0–2 帧,声明的尾裁区间
+// 头裁与尾裁的区间都跨越帧边界。头裁 2529 个采样帧落在第 0–2 帧,声明的尾裁区间
 // [221065, 222336) 横跨第 191、192 帧。两种模式的输出都是只做头裁的输出去掉末尾
 // 1271 个采样帧。
 func TestGaplessWindowsAcrossFrameBoundaries(t *testing.T) {
@@ -249,7 +249,7 @@ func TestGaplessWindowsAcrossFrameBoundaries(t *testing.T) {
 	if want := (decoded - head) * 2; len(base) != want || d.Frames() != decoded-head {
 		t.Fatalf("head-only baseline: %d samples, Frames()=%d, want %d samples", len(base), d.Frames(), want)
 	}
-	// 基准本身要与未裁剪的输出核对:标签 CRC 不符时不裁剪
+	// 基准本身要与未裁剪的输出核对。标签 CRC 不符时不裁剪
 	untrimmed := bytes.Clone(data)
 	untrimmed[p+lo+34] ^= 1
 	if _, raw, err := decodeMode(t, bytes.NewReader(untrimmed), Strict()); err != nil || !slices.Equal(base, raw[head*2:]) {
@@ -276,7 +276,7 @@ func TestGaplessWindowsAcrossFrameBoundaries(t *testing.T) {
 }
 
 // 宽松模式丢弃的帧不产出 PCM。解码时丢弃的帧(side info 非法)帧尾已经确认,仍占它在
-// 流中的位置:尾裁照常裁掉填充,输出的结尾与完好的流对齐,长度与 FFmpeg 相同。分帧层
+// 流中的位置,所以尾裁照常裁掉填充,输出的结尾与完好的流对齐,长度与 FFmpeg 相同。分帧层
 // 丢弃的帧(帧内丢了字节)不计位置,填充落在输出之外不裁,长度与 mpg123 相同。
 func TestTailTrimAfterDroppedFrames(t *testing.T) {
 	data := readCorpus(t, "sine440-stereo-44k1-cbr192.mp3")
@@ -291,7 +291,7 @@ func TestTailTrimAfterDroppedFrames(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		data    []byte
-		frames  int64 // 交付的采样帧数:FFmpeg 与 mpg123 实测值
+		frames  int64 // 交付的采样帧数,依次是 FFmpeg 与 mpg123 的实测值
 		aligned bool  // 输出的结尾与完好的流相同
 	}{
 		{"invalid side info", badSideInfo, 220500 - 1152, true},
@@ -312,7 +312,7 @@ func TestTailTrimAfterDroppedFrames(t *testing.T) {
 			if aligned := slices.Equal(got[len(got)-tail:], want[len(want)-tail:]); aligned != tc.aligned {
 				t.Fatalf("end of the output aligned with the intact stream: %v, want %v", aligned, tc.aligned)
 			}
-			// 分帧层的帧序号与解码器一致:丢弃的帧不算已解码的帧
+			// 分帧层的帧序号与解码器一致。丢弃的帧不算已解码的帧
 			if d.fr.frames != d.framesDecoded {
 				t.Fatalf("framer counts %d frames, decoder %d", d.fr.frames, d.framesDecoded)
 			}

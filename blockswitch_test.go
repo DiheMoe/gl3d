@@ -13,8 +13,8 @@ type l3Gran struct {
 	switching   bool // window_switching_flag
 	blockType   int
 	mixed       bool
-	scfCompress int   // MPEG-1 scalefac_compress;0 表示不传 scalefactor
-	scf         []int // 传输顺序:长块 21 个;短块 12 带 × 3 窗,带主序
+	scfCompress int   // MPEG-1 scalefac_compress,0 表示不传 scalefactor
+	scf         []int // 传输顺序:长块 21 个,短块 12 带 × 3 窗(带主序)
 	lines       []int // 从第 0 条谱线起的量化值,长度为偶数
 }
 
@@ -26,9 +26,9 @@ var slenMPEG1 = [16][2]int{
 }
 
 // buildL3Stream 按 ISO 11172-3 的 side information 语法构造 MPEG-1 Layer III
-// 44.1 kHz、128 kbps、无 CRC 的帧序列。main_data_begin 取 0:各帧主数据自足,
-// 不经过 reservoir;帧尾补零(附加数据)。mode 为帧头的 mode(3 为单声道),
-// modeExt 为 mode_extension;frames[i][gr][ch]。
+// 44.1 kHz、128 kbps、无 CRC 的帧序列。main_data_begin 取 0,各帧主数据自足,
+// 不经过 reservoir。帧尾补零(附加数据)。mode 为帧头的 mode(3 为单声道),
+// modeExt 为 mode_extension。frames 按 frames[i][gr][ch] 索引。
 func buildL3Stream(t *testing.T, mode, modeExt int, frames [][2][2]l3Gran) []byte {
 	t.Helper()
 	nch := 2
@@ -50,8 +50,8 @@ func buildL3Stream(t *testing.T, mode, modeExt int, frames [][2][2]l3Gran) []byt
 			for ch := 0; ch < nch; ch++ {
 				g := f[gr][ch]
 				start := md.nbits
-				// scfsi 为 0,每个 granule 都传全部 scalefactor:长块带 0–10 用
-				// slen1、11–20 用 slen2;短块带 0–5 用 slen1、6–11 用 slen2
+				// scfsi 为 0,每个 granule 都传全部 scalefactor。长块带 0–10 用
+				// slen1、11–20 用 slen2,短块带 0–5 用 slen1、6–11 用 slen2
 				split := 11
 				if g.switching && g.blockType == 2 {
 					split = 18
@@ -103,7 +103,7 @@ func buildL3Stream(t *testing.T, mode, modeExt int, frames [][2][2]l3Gran) []byt
 	return out
 }
 
-// writeTable1Pair 写入一对量化值的表 1 码字;非零值再跟一位符号位,1 为负。
+// writeTable1Pair 写入一对量化值的表 1 码字。非零值再跟一位符号位,1 为负。
 func writeTable1Pair(t *testing.T, w *bitWriter, x, y int) {
 	t.Helper()
 	abs := func(v int) int { return max(v, -v) }
@@ -123,7 +123,7 @@ func writeTable1Pair(t *testing.T, w *bitWriter, x, y int) {
 	t.Fatalf("no table 1 code for (%d, %d)", x, y)
 }
 
-// pattern 返回长度为 n 的 −1/0/1 序列;step 不同则序列不同,便于区分左右
+// pattern 返回长度为 n 的 −1/0/1 序列。step 不同则序列不同,便于区分左右
 // 声道与不同块。
 func pattern(n, step int) []int {
 	v := make([]int, n)
@@ -154,9 +154,9 @@ func channel(pcm []float64, nch, ch int) []float64 {
 
 // mixed_block_flag 置位时,最低两个子带用普通窗(block_type 0)变换,其余 30 个
 // 子带按 block_type 变换(ISO 11172-3 §2.4.2.7),起始块与结束块同样适用。
-// 谱值只放在第 0–27 条谱线(子带 0 全部与子带 1 的前 10 条;第 28–35 条为 0,
-// 抗混叠蝶形不会把能量带进子带 2),带 mixed 标志的起始/结束块因此必须与普通
-// 长块逐位相同。
+// 谱值只放在第 0–27 条谱线,即子带 0 全部与子带 1 的前 10 条。第 28–35 条
+// 为 0,所以抗混叠蝶形不会把能量带进子带 2。因此带 mixed 标志的起始/结束块
+// 必须与普通长块逐位相同。
 func TestMixedStartStopBlocksUseNormalWindowInLowSubbands(t *testing.T) {
 	low := pattern(28, 1)
 	normal := l3Gran{lines: low}
@@ -226,9 +226,9 @@ func TestDualChannelBlockTypesAreIndependent(t *testing.T) {
 
 // intensity 带按 L = Li·kl、R = Li·kr 解码(ISO 11172-3 §2.4.3.4),MS 只作用于
 // intensity 界限以下的带,不给 intensity 带附加任何因子。右声道全零时所有带
-// 都是 intensity 带;scalefactor 为 0 即位置 0:kl = 0、kr = 1,输出应与左声道
-// 静音、右声道承载同一谱值的普通立体声逐位相同,无论 MS 是否同时置位。
-// 谱值限于第 0–63 条谱线,不触及不传 scalefactor 的最高带。
+// 都是 intensity 带。scalefactor 为 0 即位置 0,此时 kl = 0、kr = 1。所以无论
+// MS 是否同时置位,输出都应与左声道静音、右声道承载同一谱值的普通立体声
+// 逐位相同。谱值限于第 0–63 条谱线,不触及不传 scalefactor 的最高带。
 func TestIntensityBandsIgnoreMSScaling(t *testing.T) {
 	content := l3Gran{lines: pattern(64, 2)}
 	silent := l3Gran{}
@@ -264,9 +264,9 @@ func lineMask(v []int, keep func(i int) bool) []int {
 // 最高的 scalefactor 带(长块第 21 带,短块第 12 带)不传 scalefactor,intensity
 // 位置沿用下面一带(短块为同一窗口)的值,非法位置同样沿用,即不做 intensity
 // (dist10、FFmpeg、mpg123 与 minimp3 在下面一带为 intensity 带时一致)。右声道
-// 全零时各带都在 intensity 区:位置 0 把左声道谱值整体移到右声道,位置 7 保持
+// 全零时各带都在 intensity 区。位置 0 把左声道谱值整体移到右声道,位置 7 保持
 // 左右声道不变,输出可用对应的普通立体声帧逐位核对。44.1 kHz 长块第 20 带为
-// 第 342–417 条谱线、第 21 带为 418–575;短块第 11 带窗口 1 为第 348–377 条、
+// 第 342–417 条谱线、第 21 带为 418–575,短块第 11 带窗口 1 为第 348–377 条、
 // 第 12 带窗口 1 为 464–519 条(ISO 11172-3 Table 3-B.8)。
 func TestIntensityTopBandInheritsPosition(t *testing.T) {
 	content := pattern(576, 2)
@@ -313,10 +313,10 @@ func TestIntensityTopBandInheritsPosition(t *testing.T) {
 	}
 }
 
-// 混合块的 intensity 界限:短块部分逐窗口确定;长块部分只在三个窗口的短块部分
+// 混合块的 intensity 界限在短块部分逐窗口确定。长块部分只在三个窗口的短块部分
 // 全为零时才可能进入 intensity 区,界限是右声道最后一个非零长块带(dist10、
 // FFmpeg)。位置均为 0,intensity 带的谱值整体移到右声道。44.1 kHz 混合块的长部
-// 为第 0–35 条谱线(长块第 5 带为第 20–23 条);短块第 3、4、5 带的窗口 1 依次为
+// 为第 0–35 条谱线(长块第 5 带为第 20–23 条),短块第 3、4、5 带的窗口 1 依次为
 // 第 40–43、54–59、74–81 条(ISO 11172-3 Table 3-B.8)。
 func TestIntensityBoundInMixedBlocks(t *testing.T) {
 	content := pattern(576, 2)
