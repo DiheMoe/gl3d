@@ -117,7 +117,7 @@ func layerFrameSize(b [4]byte) int {
 // 一致。它是廉价的预检,不分配内存。parseFrameHeader 每次失败都分配一个错误,所以逐字节
 // 试探垃圾时先用 plausibleLayer3 排除。
 func plausibleLayer3(b []byte) bool {
-	return len(b) >= 4 && b[1]&0x06 == 0x02 && b[3]&3 != 2 && layerFrameSize([4]byte(b)) != 0
+	return len(b) >= 4 && b[1]&0x06 == 0x02 && layerFrameSize([4]byte(b)) != 0
 }
 
 func parseFrameHeader(b [4]byte) (frameHeader, error) {
@@ -141,7 +141,10 @@ func parseFrameHeader(b [4]byte) (frameHeader, error) {
 	srIdxVal := int(b[2] >> 2 & 3)
 	emphasis := b[3] & 3
 	// 保留的位组合一律判为数据损坏,且须先于"不支持特性"判断,避免把
-	// 垃圾字节误报成可识别的范围外格式
+	// 垃圾字节误报成可识别的范围外格式。emphasis 的保留值 2 例外,它和其余非零值一样
+	// 交给调用方按 emphasis 处理。ISO 11172-3 的 reserved 是留给将来扩展的取值,不同于
+	// forbidden,而 emphasis 只决定去加重,不影响解码。dist10、FFmpeg 与 mpg123 也照常
+	// 解码这样的帧
 	switch {
 	case layerBits == 0:
 		return h, &CorruptError{Frame: -1, Detail: "reserved layer bits"}
@@ -149,8 +152,6 @@ func parseFrameHeader(b [4]byte) (frameHeader, error) {
 		return h, &CorruptError{Frame: -1, Detail: "bad bitrate index 15"}
 	case srIdxVal == 3:
 		return h, &CorruptError{Frame: -1, Detail: "reserved sample rate index"}
-	case emphasis == 2:
-		return h, &CorruptError{Frame: -1, Detail: "reserved emphasis"}
 	case layerBits == 2:
 		return h, &UnsupportedError{Feature: "MPEG Layer II"}
 	case layerBits == 3:

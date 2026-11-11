@@ -170,7 +170,8 @@ func parseTagsOnce(t *testing.T, b []byte) {
 
 // 全部 2^21 种同步字之后的帧头取值:解析成功的帧头字段自洽,且帧长容得下
 // 帧头、CRC 与 side information(帧循环据此切片)。失败只归为损坏或不支持,
-// 不支持仅在没有保留值时出现。
+// 不支持仅在没有保留值时出现。emphasis 的保留值不算在内,因为它不影响解码,
+// 帧头照常解析。
 func TestParseFrameHeaderAllValues(t *testing.T) {
 	rates := map[mpegVersion][]int{mpeg1: {44100, 48000, 32000}, mpeg2: {22050, 24000, 16000}, mpeg25: {11025, 12000, 8000}}
 	for v := 0; v < 1<<21; v++ {
@@ -181,8 +182,8 @@ func TestParseFrameHeaderAllValues(t *testing.T) {
 			var c *CorruptError
 			switch {
 			case errors.As(err, &u):
-				layer, br, sr, emph := b[1]>>1&3, b[2]>>4, b[2]>>2&3, b[3]&3
-				if b[1]>>3&3 == 1 || layer == 0 || br == 15 || sr == 3 || emph == 2 {
+				layer, br, sr := b[1]>>1&3, b[2]>>4, b[2]>>2&3
+				if b[1]>>3&3 == 1 || layer == 0 || br == 15 || sr == 3 {
 					t.Fatalf("%x: reserved field reported as unsupported (%v)", b, err)
 				}
 			case !errors.As(err, &c):

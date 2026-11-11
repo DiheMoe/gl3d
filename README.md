@@ -54,7 +54,7 @@ Decoding is lenient by default, so problems in the stream are skipped or conceal
 | Empty input, only tags, or less than 64 KiB of other data and no frame | `ErrNoAudio` | `ErrNoAudio` |
 | No frame within the first 64 KiB of non-tag data | `LimitError` | `LimitError` |
 | Layer I, Layer II or free format | `UnsupportedError` when the first frame is one. Later frames skipped | `UnsupportedError` |
-| Non-zero emphasis | Decoded without de-emphasis, as FFmpeg does. The first frame's value is in `Report.Emphasis` | `UnsupportedError` |
+| Non-zero emphasis, including the reserved value | Decoded without de-emphasis, as FFmpeg does. The first frame's value is in `Report.Emphasis` | `UnsupportedError` |
 | Change of MPEG version, sample rate or channel count mid-stream | Frames whose format differs from the first frame skipped | `UnsupportedError` |
 | Junk between frames or after the audio, including damaged frame headers and ICY metadata blocks | Skipped. Decoding resumes at the next frame or tag | `CorruptError` |
 | MP4, MPEG-TS, WAV and other containers | Not parsed. Container bytes count as data before the first frame or as junk | Same |

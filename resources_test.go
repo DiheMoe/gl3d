@@ -45,7 +45,7 @@ func liveHeap() int64 {
 // 稳态解码不分配:解码器建好、PCM 队列长到稳定容量之后,逐帧解码与交付不产生堆
 // 分配,长流的分配量与时长无关。
 func TestSteadyStateDecodingDoesNotAllocate(t *testing.T) {
-	emphasis, _ := shineWithEmphasis(t, 0, -1)
+	emphasis, _ := shineWithEmphasis(t, 0, -1, 1)
 	for _, tc := range []struct {
 		name string
 		data []byte
@@ -173,8 +173,8 @@ func TestResyncAllocationBounded(t *testing.T) {
 		// 同格式的有效帧头成簇出现,帧长处及其后的松弛范围内却没有帧头,所以每个候选还要检查
 		// 这一段字节。帧头簇的间隔大于帧长加 resyncSlack,否则垃圾会被当作帧交出
 		{"valid headers", cat(bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 8), make([]byte, 1024-32)), 2 << 20, true},
-		// 除了保留的 emphasis,其余都像有效的帧头
-		{"reserved emphasis", []byte{0xFF, 0xFB, 0x90, 0x02}, 2 << 20, true},
+		// 除了保留的采样率,其余都像有效的帧头
+		{"reserved sample rate", []byte{0xFF, 0xFB, 0x9C, 0x00}, 2 << 20, true},
 		// 头无效的 ID3 标识:每个都要判断头是否有效,判断不分配
 		{"ID3 with a size byte over 0x7F", []byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0x80}, 2 << 20, true},
 		// 下面两行的分配与垃圾长度成正比,所以各自单独给上限,只比实测值高约四分之一。这样
