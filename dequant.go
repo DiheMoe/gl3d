@@ -145,7 +145,8 @@ func buildBandMap(widths []uint8, nLong, nShort int, long bool) *bandMap {
 }
 
 // lsfScfSizes 用混合基数分解把 LSF 9 位 scalefac_compress 展开为 4 段 scalefactor
-// 位宽和分区变体。intensity 右声道的字段先右移 1 位,变体行号偏移 12。
+// 位宽和分区变体。intensity 右声道的字段先右移 1 位,变体行号偏移 12。右移后为 255
+// 时 ISO 13818-3 没有给出对应的行,这里按 244–254 的公式展开,与 FFmpeg、mpg123 相同。
 // 变体 = 消费的行数 × 4,匹配成功的一行也计入(minimp3 的循环退出语义)。
 func lsfScfSizes(sfc int, intensityR bool) ([4]int, int, error) {
 	var sizes [4]int

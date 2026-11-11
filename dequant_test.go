@@ -116,6 +116,73 @@ func TestLSFScfSizes(t *testing.T) {
 	}
 }
 
+// LSF 的 scalefactor 位宽与各分段带数和 ISO 13818-3 2.4.3.2 的公式逐项一致。下面的公式按
+// 原文抄写,遍历 scalefac_compress 的全部取值、三种块形,以及普通声道与 intensity 右声道。
+// 标准没有给出 int_scalefac_compress 为 255 的行,这一值按 244–254 的公式展开,与 FFmpeg、
+// mpg123 相同。
+func TestLSFScfSizesMatchISO13818(t *testing.T) {
+	iso := func(sfc int, intensityR bool, shape blockShape) (slen, nr [4]int) {
+		pick := func(long, short, mixed [4]int) [4]int {
+			switch shape {
+			case shapeShort:
+				return short
+			case shapeMixed:
+				return mixed
+			}
+			return long
+		}
+		if !intensityR {
+			switch {
+			case sfc < 400:
+				return [4]int{(sfc >> 4) / 5, (sfc >> 4) % 5, (sfc % 16) >> 2, sfc % 4},
+					pick([4]int{6, 5, 5, 5}, [4]int{9, 9, 9, 9}, [4]int{6, 9, 9, 9})
+			case sfc < 500:
+				return [4]int{((sfc - 400) >> 2) / 5, ((sfc - 400) >> 2) % 5, (sfc - 400) % 4, 0},
+					pick([4]int{6, 5, 7, 3}, [4]int{9, 9, 12, 6}, [4]int{6, 9, 12, 6})
+			default:
+				return [4]int{(sfc - 500) / 3, (sfc - 500) % 3, 0, 0},
+					pick([4]int{11, 10, 0, 0}, [4]int{18, 18, 0, 0}, [4]int{15, 18, 0, 0})
+			}
+		}
+		isc := sfc >> 1
+		switch {
+		case isc < 180:
+			return [4]int{isc / 36, (isc % 36) / 6, (isc % 36) % 6, 0},
+				pick([4]int{7, 7, 7, 0}, [4]int{12, 12, 12, 0}, [4]int{6, 15, 12, 0})
+		case isc < 244:
+			return [4]int{((isc - 180) % 64) >> 4, ((isc - 180) % 16) >> 2, (isc - 180) % 4, 0},
+				pick([4]int{6, 6, 6, 3}, [4]int{12, 9, 9, 6}, [4]int{6, 12, 9, 6})
+		default:
+			return [4]int{(isc - 244) / 3, (isc - 244) % 3, 0, 0},
+				pick([4]int{8, 8, 5, 0}, [4]int{15, 12, 9, 0}, [4]int{6, 18, 9, 0})
+		}
+	}
+	for _, intensityR := range []bool{false, true} {
+		for sfc := 0; sfc < 512; sfc++ {
+			for _, shape := range []blockShape{shapeLong, shapeShort, shapeMixed} {
+				wantSlen, wantNr := iso(sfc, intensityR, shape)
+				sizes, variant, err := lsfScfSizes(sfc, intensityR)
+				if err != nil {
+					t.Fatalf("scalefac_compress %d, intensity %v: %v", sfc, intensityR, err)
+				}
+				var nr [4]int
+				for i, c := range scfPartitions[scfShapeRow(shape)][variant : variant+4] {
+					nr[i] = int(c)
+				}
+				for i := range sizes {
+					if wantNr[i] == 0 {
+						sizes[i], wantSlen[i] = 0, 0 // 没有带的分段,位宽不读任何位
+					}
+				}
+				if sizes != wantSlen || nr != wantNr {
+					t.Errorf("scalefac_compress %d, intensity %v, shape %d: slen %v, bands %v; want %v, %v",
+						sfc, intensityR, shape, sizes, nr, wantSlen, wantNr)
+				}
+			}
+		}
+	}
+}
+
 // 反量化逐条谱线符合 ISO 11172-3 §2.4.3.4 的公式。用例覆盖长/短/混合块、
 // subblock_gain、preflag(pretab)、scalefac_scale 与 linbits 范围的大值。
 func TestDequantizeMatchesFormula(t *testing.T) {
