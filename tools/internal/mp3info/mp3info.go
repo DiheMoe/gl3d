@@ -246,20 +246,25 @@ func parseHeader(data []byte, off int) (Header, int, error) {
 	return hd, sideInfo, nil
 }
 
-// parseLAME 解析 Xing/Info 块之后的 36 字节 LAME 扩展。不足 36 字节或编码器字段
-// 不是可打印 ASCII 时视为没有 LAME 标签,返回 nil。
+// parseLAME 解析 Xing/Info 块之后的 36 字节 LAME 扩展。不足 36 字节,或编码器字段去掉
+// 末尾的 NUL 后为空、全是空格、含有不是可打印 ASCII 的字节时,视为没有 LAME 标签,返回
+// nil。规则与 gl3d 的 parseLAMETag 相同,否则 corpuscheck 核对清单的 gapless 裁剪时会用到
+// gl3d 不认的标签。
 func parseLAME(b []byte) *LAMEInfo {
 	if len(b) < 36 {
 		return nil
 	}
-	enc := b[:9]
-	for _, c := range enc {
-		if c != 0 && (c < 32 || c > 126) {
+	enc := strings.TrimRight(string(b[:9]), "\x00")
+	if strings.TrimSpace(enc) == "" {
+		return nil
+	}
+	for _, c := range []byte(enc) {
+		if c < 32 || c > 126 {
 			return nil
 		}
 	}
 	return &LAMEInfo{
-		Encoder:    string(strings.TrimRight(string(enc), "\x00")),
+		Encoder:    enc,
 		VBRMethod:  int(b[9] & 0x0F),
 		EncDelay:   int(b[21])<<4 | int(b[22])>>4,
 		EncPadding: int(b[22]&0x0F)<<8 | int(b[23]),

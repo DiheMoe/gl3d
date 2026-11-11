@@ -99,6 +99,35 @@ func TestParseXingInfoWithLAME(t *testing.T) {
 	}
 }
 
+func TestParseLAMEEncoderField(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"", false},
+		{"         ", false},
+		{"\x00LAME", false},
+		{"LAME\x003.1", false},
+		{"LAME\n3.1", false},
+		{"LAME\xff3.1", false},
+		{"LAME3.100", true},
+		{"Lavc62.11", true},
+		{"GOGO3.13", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := make([]byte, 36)
+			copy(b, tc.name)
+			l := parseLAME(b)
+			if (l != nil) != tc.want {
+				t.Fatalf("parseLAME(%q) = %+v, want present %v", tc.name, l, tc.want)
+			}
+			if l != nil && l.Encoder != tc.name {
+				t.Fatalf("encoder %q, want %q", l.Encoder, tc.name)
+			}
+		})
+	}
+}
+
 func TestParseID3v2SyncsafeSizeAndFooter(t *testing.T) {
 	tag := []byte{'I', 'D', '3', 4, 0, 0x10, 0, 0, 0, 22} // v2.4、footer 标志、syncsafe 长度 22
 	tag = append(tag, make([]byte, 22)...)
