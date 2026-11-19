@@ -1,16 +1,18 @@
 # gl3d
 
-Pure-Go MPEG Layer III (MP3) decoder — MPEG-1, MPEG-2 and MPEG-2.5, streaming, standard library only, MIT licensed.
+[English](README.en.md)
 
-## Installation
+纯 Go 的 MPEG Layer III（MP3）流式解码器。支持 MPEG-1、MPEG-2 和 MPEG-2.5，只依赖标准库，MIT 许可。
+
+## 安装
 
 ```sh
 go get github.com/DiheMoe/gl3d
 ```
 
-gl3d requires Go 1.27 or later.
+gl3d 需要 Go 1.27 或更高版本。
 
-## Usage
+## 用法
 
 ```go
 d, err := gl3d.NewDecoder(ctx, r)
@@ -20,7 +22,9 @@ if err != nil {
 buf := make([]float64, 4096*d.Channels())
 for {
 	n, err := d.ReadPCM(ctx, buf)
-	consume(buf[:n*d.Channels()])
+	if n > 0 {
+		consume(buf[:n*d.Channels()])
+	}
 	if err == io.EOF {
 		break
 	}
@@ -30,58 +34,58 @@ for {
 }
 ```
 
-`NewDecoder` reads from any `io.Reader` and never seeks. `ReadPCM` writes interleaved `float64` samples at full scale 1.0 and returns the number of sample frames it wrote. Samples are not clipped and may exceed ±1. `SampleRate` and `Channels` report the stream's own sample rate and channel count, because gl3d does not resample or remix.
+`NewDecoder` 从任意 `io.Reader` 顺序读取，不做 seek。`ReadPCM` 写入满刻度为 1.0 的交错 `float64` 样本，返回写入的采样帧数。样本不做限幅，可能超出 ±1。`SampleRate` 和 `Channels` 报告流本身的采样率与声道数，因为 gl3d 不做重采样，也不做声道混音。
 
-## Input and decoding modes
+## 输入与解码模式
 
-Decoding is lenient by default, so problems in the stream are skipped or concealed. With `gl3d.Strict()` they are errors instead. The table lists what each mode does with each kind of input.
+默认是宽松模式，流中的异常会跳过或容错后继续解码。传入 `gl3d.Strict()` 可切换为严格模式，这些异常会作为错误返回。下表列出两种模式对各类输入的处理方式。
 
-| Input | Lenient (default) | Strict |
+| 输入 | 宽松模式（默认） | 严格模式 |
 |---|---|---|
-| Layer III of MPEG-1 (32, 44.1, 48 kHz), MPEG-2 (16, 22.05, 24 kHz) and MPEG-2.5 (8, 11.025, 12 kHz) | Decoded | Decoded |
-| All Layer III bit rates. CBR, VBR and ABR. Bit rate and padding may change from frame to frame | Decoded | Decoded |
-| Mono, stereo, joint stereo (MS and intensity) and dual channel | Decoded | Decoded |
-| Long, short, start, stop and mixed blocks. Bit reservoir across frames | Decoded | Decoded |
-| Frames with or without CRC | Decoded | Decoded |
-| ID3v2.2, 2.3 and 2.4 tags at the start | Skipped | Skipped |
-| ID3v1, TAG+, APEv1/v2, Lyrics3 v1/v2 and ID3v2 tags after the audio | Skipped and listed in `Report.TrailingTags` | Same |
-| Xing/Info or VBRI header in the first frame | Frame count read. The frame is not decoded as audio | Same |
-| LAME tag, including the one FFmpeg writes | Encoder delay trimmed from the start. Padding trimmed from the end when the frame count is known | Same |
-| LAME tag whose CRC does not match | Frame count and LAME fields ignored, so the output keeps the encoder delay and padding. FFmpeg and mpg123 still trim them | Same |
-| VBRI delay field and iTunSMPB | Ignored | Ignored |
-| Up to 64 KiB of non-tag data before the first frame | Skipped | Skipped |
-| Stream starting mid-way, as cuts made without re-encoding do | Granules whose main data begins before the start decode as silence, so the length is kept | Same |
-| Empty input, only tags, or less than 64 KiB of other data and no frame | `ErrNoAudio` | `ErrNoAudio` |
-| No frame within the first 64 KiB of non-tag data | `LimitError` | `LimitError` |
-| Layer I, Layer II or free format | `UnsupportedError` when the first frame is one. Later frames skipped | `UnsupportedError` |
-| Non-zero emphasis, including the reserved value | Decoded without de-emphasis, as FFmpeg does. The first frame's value is in `Report.Emphasis` | `UnsupportedError` |
-| Change of MPEG version, sample rate or channel count mid-stream | Frames whose format differs from the first frame skipped | `UnsupportedError` |
-| Junk between frames or after the audio, including damaged frame headers and ICY metadata blocks | Skipped. Decoding resumes at the next frame or tag | `CorruptError` |
-| MP4, MPEG-TS, WAV and other containers | Not parsed. Container bytes count as data before the first frame or as junk | Same |
-| Tags between frames, including the Xing/Info/VBRI frames of concatenated files | Skipped | `CorruptError` |
-| Frame whose CRC does not match | Decoded anyway | `CorruptError` |
-| Invalid side information, or `part2_3_length` adding up to more bits than the main data holds | Frame dropped | `CorruptError` |
-| Damaged scalefactor or Huffman data | Spectral lines from the damage onwards zeroed in that granule and channel | `CorruptError` |
-| Frame with bytes missing, so that the next frame starts before its declared end | Frame dropped. Decoding resumes at the next frame | `CorruptError` |
-| Data ending inside a frame, a frame header or a tag | Incomplete part dropped | `TruncatedError` |
-| Decoded frame count different from the Xing/VBRI frame count | Decoded as usual | `TruncatedError` at the end |
-| LAME padding longer than the audio left after the start trim | No end trim | No end trim, `CorruptError` at the end |
-| Malformed Xing/Info/VBRI header in the first frame | Frame skipped and its fields ignored | `CorruptError` |
-| ID3v2 header whose version or revision byte is 0xFF | Treated as junk | `CorruptError` |
-| ID3v2 header with an unknown major version or undefined flags | Tag skipped by its size | `CorruptError` |
-| Malformed APE or Lyrics3 tag | Skipped as junk | `CorruptError` |
-| Tags larger than 16 MiB in total | Skipped | `LimitError` |
+| MPEG-1（32、44.1、48 kHz）、MPEG-2（16、22.05、24 kHz）与 MPEG-2.5（8、11.025、12 kHz）的 Layer III | 正常解码 | 正常解码 |
+| 所有 Layer III 码率，支持 CBR、VBR 和 ABR，码率与 padding 可逐帧变化 | 正常解码 | 正常解码 |
+| 单声道、立体声、联合立体声（MS 与 intensity stereo）和双单声道（dual channel） | 正常解码 | 正常解码 |
+| 长块、短块、起始块、结束块与混合块，支持跨帧 bit reservoir | 正常解码 | 正常解码 |
+| 带或不带 CRC 的帧 | 正常解码 | 正常解码 |
+| 开头的 ID3v2.2、2.3 和 2.4 标签 | 跳过 | 跳过 |
+| 音频之后的 ID3v1、TAG+、APEv1/v2、Lyrics3 v1/v2 和 ID3v2 标签 | 跳过并记入 `Report.TrailingTags` | 同宽松模式 |
+| 首帧中的 Xing/Info 或 VBRI 头 | 读取帧数，该帧不作为音频解码 | 同宽松模式 |
+| LAME 标签（含 FFmpeg 写入的标签） | 从开头裁去编码器延迟。帧数已知时，从末尾裁去尾部填充 | 同宽松模式 |
+| CRC 不匹配的 LAME 标签 | 忽略帧数与 LAME 字段，输出保留编码器延迟与尾部填充。FFmpeg 和 mpg123 仍会裁剪 | 同宽松模式 |
+| VBRI 的 delay 字段和 iTunSMPB | 忽略 | 忽略 |
+| 首帧前不超过 64 KiB 的非标签数据 | 跳过 | 跳过 |
+| 从中途开始的流（例如未重编码直接切分的片段） | main data 起点早于流开头的 granule 解码为静音，保持时长不变 | 同宽松模式 |
+| 空输入、只有标签，或首帧前非标签数据不超过 64 KiB 且没有帧 | `ErrNoAudio` | `ErrNoAudio` |
+| 首帧前非标签数据超过 64 KiB 仍没有帧 | `LimitError` | `LimitError` |
+| Layer I、Layer II 或 free format | 作为首帧时返回 `UnsupportedError`，后续出现时跳过 | `UnsupportedError` |
+| 非零 emphasis（包括保留值） | 照常解码，不做去加重，与 FFmpeg 相同。首帧的值记入 `Report.Emphasis` | `UnsupportedError` |
+| 流中途改变 MPEG 版本、采样率或声道数 | 跳过格式与首帧不同的帧 | `UnsupportedError` |
+| 帧之间或音频之后的垃圾数据，包括损坏的帧头和 ICY 元数据块 | 跳过，在下一帧或标签处恢复解码 | `CorruptError` |
+| MP4、MPEG-TS、WAV 等容器格式 | 不解析。容器字节计入首帧前的数据或垃圾数据 | 同宽松模式 |
+| 帧之间的标签，包括拼接文件的 Xing/Info/VBRI 帧 | 跳过 | `CorruptError` |
+| CRC 不匹配的帧 | 照常解码 | `CorruptError` |
+| 非法 side information，或 `part2_3_length` 之和超出 main data 可用位数 | 丢弃该帧 | `CorruptError` |
+| 损坏的 scalefactor 或 Huffman 数据 | 将该声道当前 granule 从损坏处起的谱线置零 | `CorruptError` |
+| 缺字节的帧（下一帧在当前帧声明的结束位置之前开始） | 丢弃该帧，在下一帧处恢复解码 | `CorruptError` |
+| 数据在帧、帧头或标签中间结束 | 丢弃不完整的部分 | `TruncatedError` |
+| 实际解码帧数与 Xing/VBRI 声明的帧数不符 | 照常解码 | 在流结尾返回 `TruncatedError` |
+| LAME 尾部填充长于裁去开头延迟后剩余的音频 | 不做尾部裁剪 | 不做尾部裁剪，在流结尾返回 `CorruptError` |
+| 首帧中无法解析的 Xing/Info/VBRI 头 | 跳过该帧并忽略其字段 | `CorruptError` |
+| 主版本号或修订号为 `0xFF`，或长度字节不是 syncsafe 的 ID3v2 头 | 当作垃圾数据处理 | `CorruptError` |
+| 未知主版本或带未定义标志位的 ID3v2 头 | 按其声明的长度跳过 | `CorruptError` |
+| 格式错误的 APE 或 Lyrics3 标签 | 当作垃圾数据跳过 | `CorruptError` |
+| 累计超过 16 MiB 的标签 | 跳过 | `LimitError` |
 
-Where only strict mode returns an error, lenient mode records the problem in `Decoder.Report` and `Report.Clean` returns false. When lenient decoding ends normally and `Report.Clean` returns true, strict decoding of the same stream succeeds with identical output. Lenient mode returns `ErrNoAudio` when it has dropped, skipped or cut off data and decoded no frame.
+凡是仅严格模式返回错误的情形，宽松模式都会把问题记入 `Decoder.Report`，此时 `Report.Clean` 返回 false。宽松模式正常结束且 `Report.Clean` 返回 true 时，以严格模式解码同一码流也会成功，且输出完全一致。如果宽松模式丢弃、跳过或截断了数据，最终一个帧也没有解出，则返回 `ErrNoAudio`。
 
-Strict mode returns problems found while opening the stream from `NewDecoder` and the rest from `ReadPCM`. Opening reads the leading tags, the first frame header and the Xing/Info/VBRI header. gl3d skips tags without reading their contents. The package documentation describes the full error contract.
+严格模式下，打开流时发现的问题由 `NewDecoder` 返回，其余由 `ReadPCM` 返回。打开流会读取开头的标签、首帧帧头以及 Xing/Info/VBRI 头。gl3d 只跳过元数据标签，不解析其内容。完整的错误契约见包文档。
 
-## Verification status
+## 验证状态
 
-- Intensity stereo (MPEG-1 and LSF) is covered only by unit tests and constructed streams. Neither the test corpus nor the ISO 11172-4 compliance streams contain it.
-- LSF intensity positions and gains follow ISO 13818-3. Two cases that the standards leave open follow FFmpeg and mpg123. One is the position of the top scalefactor band when the band below it is not intensity coded. The other is a separate intensity bound for each short window in MPEG-1.
-- The scalefactor band widths for 16, 22.05 and 24 kHz, and the LSF scalefactor lengths and partitions, match ISO 13818-3.
+- intensity stereo（MPEG-1 和 LSF）目前只由单元测试与构造码流覆盖。测试语料库和 ISO 11172-4 一致性码流中都不包含它。
+- LSF intensity 的位置与增益遵循 ISO 13818-3。标准未明确规定的两种情形遵循 FFmpeg 和 mpg123。一种是最高 scalefactor band 下面一带未用 intensity 编码时，最高带的位置如何取值。另一种是 MPEG-1 中每个短窗各自确定 intensity 界限。
+- 16、22.05 和 24 kHz 的 scalefactor band 宽度，以及 LSF scalefactor 长度与分区，均与 ISO 13818-3 一致。
 
-## License
+## 许可证
 
-MIT. See [LICENSE.txt](LICENSE.txt).
+MIT。见 [LICENSE.txt](LICENSE.txt)。
